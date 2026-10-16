@@ -19,6 +19,7 @@
       "@agentforge/api/openapi": ["apps/api/src/openapi.ts"],
       "@agentforge/api/metrics": ["apps/api/src/metrics.ts"],
       "@agentforge/api/idempotency": ["apps/api/src/idempotency.ts"],
+      "@agentforge/worker": ["apps/worker/src/index.ts"],
       "@agentforge/contracts": ["packages/contracts/src/index.ts"],
       "@agentforge/core": ["packages/core/src/index.ts"],
       "@agentforge/workflows": ["packages/workflows/src/index.ts"],

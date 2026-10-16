@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadApiConfig } from '@agentforge/api';
-import { type ExecutionEvent, AgentForgeError } from '@agentforge/contracts';
+import { AgentForgeError, type ExecutionEvent, type JsonValue } from '@agentforge/contracts';
 import { pumpEvents, type EventSink, type EventSource } from '@agentforge/events';
 import { PostgresCli, PostgresStore } from '@agentforge/persistence';
 import { DeterministicProvider, ProviderRegistry } from '@agentforge/providers';
@@ -9,7 +9,7 @@ import { RuntimeService, TaskRegistry, Worker } from '@agentforge/runtime';
 import { createToolRegistry, defineWorkflow } from '@agentforge/sdk';
 import { FakeClock, MemoryStore } from '@agentforge/testing';
 import { ToolRegistry, jsonSchema } from '@agentforge/tools';
-import { loadWorkerConfig } from '../apps/worker/src/index.ts';
+import { loadWorkerConfig } from '@agentforge/worker';
 
 test('SDK workflow helper validates and embedded tool registry is usable', () => {
   assert.throws(() => defineWorkflow({ name: 'invalid', steps: [] }), /step|workflow/i);
@@ -63,7 +63,7 @@ test('provider timeout is classified as TIMED_OUT and cannot later succeed', asy
   assert.equal((await store.getRun(run.id))?.state, 'FAILED');
 });
 
-async function assertToolFailure(handler: () => Promise<unknown>): Promise<void> {
+async function assertToolFailure(handler: () => Promise<JsonValue>): Promise<void> {
   const store = new MemoryStore();
   const runtime = new RuntimeService(store);
   const tools = new ToolRegistry();
@@ -98,7 +98,7 @@ test('graceful shutdown revokes active work and later recovery completes it', as
   tasks.register('interruptible', async (_input, context) => {
     calls += 1;
     if (calls > 1) return { recovered: true };
-    return await new Promise((resolve, reject) => {
+    return await new Promise<JsonValue>((resolve, reject) => {
       context.signal.addEventListener('abort', () => reject(new AgentForgeError({ code: 'TASK_CANCELLED', category: 'CANCELLATION', message: 'worker shutting down' })), { once: true });
     });
   });
