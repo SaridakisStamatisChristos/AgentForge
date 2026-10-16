@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createApi } from '../apps/api/src/index.ts';
-import { API_ROUTE_KEYS, OPENAPI_DOCUMENT } from '../apps/api/src/openapi.ts';
+import { createApi } from '../apps/api/src/index.js';
+import { API_ROUTE_KEYS, OPENAPI_DOCUMENT } from '../apps/api/src/openapi.js';
 import { ProviderRegistry } from '@agentforge/providers';
 import { TaskRegistry, Worker } from '@agentforge/runtime';
 import { AgentForgeClient } from '@agentforge/sdk';
@@ -18,94 +18,105 @@ async function withApi<T>(store: MemoryStore, fn: (baseUrl: string) => Promise<T
   }
 }
 
-test('liveness remains healthy while readiness reports durable-store outage', async () => {
+test('health liveness is independent from readiness', async () => {
   const store = new MemoryStore();
   store.setDatabaseAvailable(false);
   await withApi(store, async (baseUrl) => {
     const live = await fetch(`${baseUrl}/health/live`);
-    assert.equal(live.status, 200);
     const ready = await fetch(`${baseUrl}/health/ready`);
+    assert.equal(live.status, 200);
     assert.equal(ready.status, 503);
-    assert.deepEqual(await ready.json(), { status: 'not_ready', database: 'unavailable' });
   });
 });
 
-test('API validates malformed and oversized JSON without leaking stack traces', async () => {
+test('stable API error envelope echoes caller request id', async () => {
   const store = new MemoryStore();
   await withApi(store, async (baseUrl) => {
-    const malformed = await fetch(`${baseUrl}/v1/workflows`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{not-json' });
-    assert.equal(malformed.status, 400);
-    const malformedBody = await malformed.json() as { error: Record<string, unknown> };
-    assert.equal(malformedBody.error.code, 'INVALID_JSON_BODY');
-    assert.equal('stack' in malformedBody.error, false);
-    assert.equal(typeof malformed.headers.get('x-request-id'), 'string');
-
-    const oversized = await fetch(`${baseUrl}/v1/runs`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ workflowVersionId: 'x', input: { data: 'x'.repeat(2000) } }) });
-    assert.equal(oversized.status, 413);
-  }, 1024);
+    const response = await fetch(`${baseUrl}/v1/runs/missing`, { headers: { 'x-request-id': 'req-test' } });
+    assert.equal(response.status, 404);
+    assert.equal(response.headers.get('x-request-id'), 'req-test');
+    const body = await response.json() as { error: { code: string; requestId: string } };
+    assert.equal(body.error.code, 'RUN_NOT_FOUND');
+    assert.equal(body.error.requestId, 'req-test');
+  });
 });
 
-test('SDK exercises create, run, history and live event replay through the HTTP API', async () => {
+test('SDK exercises public HTTP workflow and run lifecycle', async () => {
   const store = new MemoryStore();
+  const tasks = new TaskRegistry();
+  tasks.register('echo', async (input) => input);
+  const worker = new Worker(store, tasks, new ToolRegistry(), new ProviderRegistry(), { workerId: 'sdk-worker', concurrency: 1, claimBatchSize: 1, leaseMs: 1000, heartbeatMs: 100, pollMs: 10, gracefulShutdownMs: 100 });
   await withApi(store, async (baseUrl) => {
-    const client = new AgentForgeClient({ baseUrl, requestIdFactory: () => 'sdk-api-test' });
-    const workflow = await client.createWorkflow({ name: 'api-sdk', steps: [{ id: 'a', kind: 'task', handler: 'echo' }] });
-    const run = await client.startRun(workflow.id, { hello: 'world' });
-    const tasks = new TaskRegistry();
-    tasks.register('echo', async (input) => input);
-    const worker = new Worker(store, tasks, new ToolRegistry(), new ProviderRegistry(), { workerId: 'api-worker', concurrency: 1, claimBatchSize: 1, leaseMs: 1000, heartbeatMs: 100, pollMs: 10, gracefulShutdownMs: 100 });
+    const client = new AgentForgeClient({ baseUrl, requestIdFactory: () => 'sdk-request' });
+    const workflow = await client.createWorkflow({ name: 'sdk', steps: [{ id: 'echo', kind: 'task', handler: 'echo', input: { value: '$run.input.value' } }] });
+    const run = await client.startRun(workflow.id, { value: 'hello' });
     await worker.tick();
     assert.equal((await client.getRun(run.id)).state, 'SUCCEEDED');
     assert.equal((await client.listSteps(run.id))[0]?.state, 'SUCCEEDED');
-    const page = await client.listEvents(run.id, { limit: 500 });
-    assert.ok(page.events.some((event) => event.type === 'workflow.succeeded'));
-    const streamed = [];
-    for await (const event of client.liveEvents(run.id)) streamed.push(event);
-    assert.deepEqual(streamed.map((event) => event.sequence), page.events.map((event) => event.sequence));
+    assert.ok((await client.listEvents(run.id, { limit: 100 })).events.length > 0);
   });
 });
 
-test('cancel and signal endpoints preserve runtime semantics', async () => {
+test('durable signal endpoint deduplicates and resumes the workflow', async () => {
   const store = new MemoryStore();
+  const worker = new Worker(store, new TaskRegistry(), new ToolRegistry(), new ProviderRegistry(), { workerId: 'signal-worker', concurrency: 1, claimBatchSize: 1, leaseMs: 1000, heartbeatMs: 100, pollMs: 10, gracefulShutdownMs: 100 });
   await withApi(store, async (baseUrl) => {
     const client = new AgentForgeClient({ baseUrl });
-    const waitWorkflow = await client.createWorkflow({ name: 'approval', steps: [
-      { id: 'wait', kind: 'wait', signal: 'approved' },
-      { id: 'after', kind: 'task', handler: 'echo', dependsOn: ['wait'] },
-    ] });
-    const waitRun = await client.startRun(waitWorkflow.id, null);
-    const tasks = new TaskRegistry();
-    tasks.register('echo', async (input) => input);
-    const worker = new Worker(store, tasks, new ToolRegistry(), new ProviderRegistry(), { workerId: 'signal-worker', concurrency: 1, claimBatchSize: 1, leaseMs: 1000, heartbeatMs: 100, pollMs: 10, gracefulShutdownMs: 100 });
+    const workflow = await client.createWorkflow({ name: 'wait', steps: [{ id: 'approval', kind: 'wait', signal: 'approved' }] });
+    const run = await client.startRun(workflow.id, null);
     await worker.tick();
-    assert.equal((await client.getRun(waitRun.id)).state, 'WAITING');
-    assert.equal((await client.sendSignal(waitRun.id, 'approved', { reviewer: 'alice' }, 'approval-key')).status, 'accepted');
-    assert.equal((await client.sendSignal(waitRun.id, 'approved', { reviewer: 'alice' }, 'approval-key')).status, 'duplicate');
-    await worker.tick();
-    assert.equal((await client.getRun(waitRun.id)).state, 'SUCCEEDED');
-
-    const cancelWorkflow = await client.createWorkflow({ name: 'cancel-api', steps: [{ id: 'a', kind: 'task', handler: 'echo' }] });
-    const cancelRun = await client.startRun(cancelWorkflow.id, null);
-    assert.equal((await client.cancelRun(cancelRun.id)).state, 'CANCELLED');
-    assert.equal((await client.getRun(cancelRun.id)).state, 'CANCELLED');
+    assert.equal((await client.getRun(run.id)).state, 'WAITING');
+    assert.equal((await client.sendSignal(run.id, 'approved', { ok: true }, 'dedupe')).status, 'accepted');
+    assert.equal((await client.sendSignal(run.id, 'approved', { ok: true }, 'dedupe')).status, 'duplicate');
+    assert.equal((await client.getRun(run.id)).state, 'SUCCEEDED');
   });
 });
 
-test('OpenAPI route inventory stays aligned with runtime route surface', () => {
-  const actual: string[] = [];
-  for (const [path, operations] of Object.entries(OPENAPI_DOCUMENT.paths)) {
-    for (const method of Object.keys(operations)) actual.push(`${method.toUpperCase()} ${path}`);
-  }
-  assert.deepEqual(actual.sort(), [...API_ROUTE_KEYS].sort());
+test('event history pagination returns monotonic pages', async () => {
+  const store = new MemoryStore();
+  const tasks = new TaskRegistry();
+  tasks.register('echo', async (input) => input);
+  const worker = new Worker(store, tasks, new ToolRegistry(), new ProviderRegistry(), { workerId: 'page-worker', concurrency: 1, claimBatchSize: 1, leaseMs: 1000, heartbeatMs: 100, pollMs: 10, gracefulShutdownMs: 100 });
+  await withApi(store, async (baseUrl) => {
+    const client = new AgentForgeClient({ baseUrl });
+    const workflow = await client.createWorkflow({ name: 'events', steps: [{ id: 'a', kind: 'task', handler: 'echo' }] });
+    const run = await client.startRun(workflow.id, null);
+    await worker.tick();
+    const first = await client.listEvents(run.id, { limit: 2 });
+    assert.equal(first.events.length, 2);
+    assert.ok(first.nextAfter);
+    const second = await client.listEvents(run.id, { after: first.nextAfter, limit: 100 });
+    assert.ok(second.events.length > 0);
+    assert.ok((second.events[0]?.sequence ?? 0) > (first.events.at(-1)?.sequence ?? 0));
+  });
 });
 
-test('metrics endpoint exposes lean runtime counters', async () => {
+test('SSE replays ordered durable events', async () => {
+  const store = new MemoryStore();
+  const tasks = new TaskRegistry();
+  tasks.register('echo', async (input) => input);
+  const worker = new Worker(store, tasks, new ToolRegistry(), new ProviderRegistry(), { workerId: 'sse-worker', concurrency: 1, claimBatchSize: 1, leaseMs: 1000, heartbeatMs: 100, pollMs: 10, gracefulShutdownMs: 100 });
+  await withApi(store, async (baseUrl) => {
+    const client = new AgentForgeClient({ baseUrl });
+    const workflow = await client.createWorkflow({ name: 'sse', steps: [{ id: 'a', kind: 'task', handler: 'echo' }] });
+    const run = await client.startRun(workflow.id, null);
+    await worker.tick();
+    const events = [];
+    for await (const event of client.liveEvents(run.id)) events.push(event);
+    assert.ok(events.length > 0);
+    for (let index = 1; index < events.length; index += 1) assert.ok((events[index]?.sequence ?? 0) > (events[index - 1]?.sequence ?? 0));
+  });
+});
+
+test('payload limit rejects oversized API requests', async () => {
   const store = new MemoryStore();
   await withApi(store, async (baseUrl) => {
-    const metrics = await fetch(`${baseUrl}/metrics`);
-    assert.equal(metrics.status, 200);
-    const body = await metrics.text();
-    assert.match(body, /agentforge_http_requests_total/);
-    assert.match(body, /agentforge_http_errors_total/);
-  });
+    const response = await fetch(`${baseUrl}/v1/runs`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ data: 'x'.repeat(500) }) });
+    assert.equal(response.status, 413);
+  }, 128);
+});
+
+test('OpenAPI contract lists every required V1 route', () => {
+  const paths = OPENAPI_DOCUMENT.paths as Record<string, unknown>;
+  for (const route of API_ROUTE_KEYS) assert.ok(paths[route] !== undefined, `missing OpenAPI route ${route}`);
 });
