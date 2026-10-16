@@ -91,7 +91,8 @@ test('asynchronous tool rejection is captured as a tool failure', async () => {
 });
 
 test('graceful shutdown revokes active work and later recovery completes it', async () => {
-  const store = new MemoryStore();
+  const clock = new FakeClock();
+  const store = new MemoryStore(clock);
   const runtime = new RuntimeService(store);
   let calls = 0;
   const tasks = new TaskRegistry();
@@ -104,13 +105,13 @@ test('graceful shutdown revokes active work and later recovery completes it', as
   });
   const workflow = await runtime.createWorkflow({ name: 'shutdown-recovery', steps: [{ id: 'x', kind: 'task', handler: 'interruptible' }] });
   const run = await runtime.startRun(workflow.id, null);
-  const worker = new Worker(store, tasks, new ToolRegistry(), new ProviderRegistry(), { workerId: 'shutdown-1', concurrency: 1, claimBatchSize: 1, leaseMs: 40, heartbeatMs: 10, pollMs: 5, gracefulShutdownMs: 100 });
+  const worker = new Worker(store, tasks, new ToolRegistry(), new ProviderRegistry(), { workerId: 'shutdown-1', concurrency: 1, claimBatchSize: 1, leaseMs: 40, heartbeatMs: 10, pollMs: 5, gracefulShutdownMs: 100 }, undefined, clock);
   const ticking = worker.tick();
-  await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
   await worker.shutdown();
   await ticking;
-  await new Promise<void>((resolve) => setTimeout(resolve, 45));
-  const recovery = new Worker(store, tasks, new ToolRegistry(), new ProviderRegistry(), { workerId: 'shutdown-2', concurrency: 1, claimBatchSize: 1, leaseMs: 1000, heartbeatMs: 100, pollMs: 5, gracefulShutdownMs: 100 });
+  clock.advance(41);
+  const recovery = new Worker(store, tasks, new ToolRegistry(), new ProviderRegistry(), { workerId: 'shutdown-2', concurrency: 1, claimBatchSize: 1, leaseMs: 1000, heartbeatMs: 100, pollMs: 5, gracefulShutdownMs: 100 }, undefined, clock);
   await recovery.tick();
   assert.equal((await store.getRun(run.id))?.state, 'SUCCEEDED');
   assert.ok(store.snapshot().attempts.some((attempt) => attempt.state === 'LEASE_LOST'));
