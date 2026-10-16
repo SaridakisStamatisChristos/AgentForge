@@ -1,0 +1,41 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "useUnknownInCatchVariables": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": false,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": [],
+    "baseUrl": ".",
+    "paths": {
+      "@agentforge/contracts": ["packages/contracts/src/index.ts"],
+      "@agentforge/core": ["packages/core/src/index.ts"],
+      "@agentforge/workflows": ["packages/workflows/src/index.ts"],
+      "@agentforge/runtime": ["packages/runtime/src/index.ts"],
+      "@agentforge/queue": ["packages/queue/src/index.ts"],
+      "@agentforge/persistence": ["packages/persistence/src/index.ts"],
+      "@agentforge/events": ["packages/events/src/index.ts"],
+      "@agentforge/tools": ["packages/tools/src/index.ts"],
+      "@agentforge/providers": ["packages/providers/src/index.ts"],
+      "@agentforge/sdk": ["packages/sdk/src/index.ts"],
+      "@agentforge/testing": ["packages/testing/src/index.ts"]
+    }
+  },
+  "include": [
+    "types/**/*.d.ts",
+    "packages/**/*.ts",
+    "apps/**/*.ts",
+    "examples/**/*.ts",
+    "benchmarks/**/*.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.ts",
+    "integration/**/*.ts"
+  ]
+}
