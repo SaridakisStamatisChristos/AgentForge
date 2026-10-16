@@ -25,7 +25,7 @@
       "@agentforge/workflows": ["packages/workflows/src/index.ts"],
       "@agentforge/runtime": ["packages/runtime/src/index.ts"],
       "@agentforge/queue": ["packages/queue/src/index.ts"],
-      "@agentforge/persistence": ["packages/persistence/src/index.ts"],
+      "@agentforge/persistence": ["packages/persistence/src/public.ts"],
       "@agentforge/persistence/tool-definitions": ["packages/persistence/src/tool-definitions.ts"],
       "@agentforge/events": ["packages/events/src/index.ts"],
       "@agentforge/tools": ["packages/tools/src/index.ts"],

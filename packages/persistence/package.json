@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "development": "./src/index.ts", "default": "./dist/index.js" },
+    ".": { "types": "./dist/public.d.ts", "development": "./src/public.ts", "default": "./dist/public.js" },
     "./tool-definitions": { "types": "./dist/tool-definitions.d.ts", "development": "./src/tool-definitions.ts", "default": "./dist/tool-definitions.js" }
   },
-  "types": "./dist/index.d.ts",
+  "types": "./dist/public.d.ts",
   "files": ["dist", "src"],
   "dependencies": {
     "@agentforge/contracts": "workspace:*",
