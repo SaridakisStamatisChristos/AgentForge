@@ -97,7 +97,7 @@ export function computeRetryDelayMs(policy: RetryPolicy, failedAttemptNumber: nu
   const raw = Math.min(policy.maxDelayMs, policy.initialDelayMs * policy.backoffMultiplier ** (failedAttemptNumber - 1));
   const jitter = policy.jitterRatio ?? 0;
   const multiplier = 1 - jitter + 2 * jitter * randomUnit;
-  return Math.max(0, Math.round(raw * multiplier));
+  return Math.min(policy.maxDelayMs, Math.max(0, Math.round(raw * multiplier)));
 }
 
 export function shouldRetry(policy: RetryPolicy, attemptNumber: number, errorCode: string, retryable: boolean): boolean {
