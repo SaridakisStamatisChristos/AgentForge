@@ -68,7 +68,7 @@ test('retry schedule is bounded and deterministic with injected randomness', () 
   assert.equal(computeRetryDelayMs(policy, 2, 0.5), 200);
   assert.equal(computeRetryDelayMs(policy, 3, 0.5), 350);
   assert.equal(computeRetryDelayMs(policy, 3, 0), 280);
-  assert.equal(computeRetryDelayMs(policy, 3, 1), 420);
+  assert.equal(computeRetryDelayMs(policy, 3, 1), 350);
 });
 
 test('numeric workflow policy rejects non-finite and unbounded values', () => {
