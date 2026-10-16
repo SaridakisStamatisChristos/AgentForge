@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   repair:
-    if: github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request && contains(github.event.comment.body, '/r7-db-fix'))
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.comment.body, '/r7-db-fix')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     services:
