@@ -2,6 +2,9 @@ declare const process: {
   env: Record<string, string | undefined>;
   argv: string[];
   pid: number;
+  version: string;
+  platform: string;
+  arch: string;
   exitCode?: number;
   cwd(): string;
   stdout: { write(chunk: string): boolean };
