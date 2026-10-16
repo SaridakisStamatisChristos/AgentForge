@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
+    "@agentforge/contracts": "workspace:*",
     "@agentforge/persistence": "workspace:*",
     "@agentforge/providers": "workspace:*",
     "@agentforge/runtime": "workspace:*",
