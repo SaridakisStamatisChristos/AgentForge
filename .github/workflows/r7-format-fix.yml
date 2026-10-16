@@ -28,7 +28,9 @@ jobs:
       - name: Frozen install
         run: pnpm install --frozen-lockfile
       - name: Apply canonical formatting
-        run: node scripts/format.mjs --write
+        run: |
+          node scripts/format.mjs --write
+          git restore --source=HEAD -- .github/workflows/ci.yml
       - name: Verify formatter is idempotent
         run: pnpm format:check
       - name: Commit normalization
