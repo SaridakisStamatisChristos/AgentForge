@@ -1,7 +1,25 @@
 # Evidence status
 
-Implementation artifacts exist, but PostgreSQL, frozen-install, build, Compose and container gates remain `UNVERIFIED` until the actual GitHub Actions jobs complete and are inspected.
+R7 execution evidence is now established for the V1 candidate rather than assumed from implementation artifacts.
 
-A temporary default-branch R7 bootstrap workflow exists solely to let GitHub execute the unmerged PR candidate. Its results are treated as falsification evidence, and the bootstrap is removed from `main` after the evidence run is captured.
+Reference full verification run: GitHub Actions `r7-pr-bootstrap` run `38930189319`, which explicitly checked out implementation commit `adfb21b31113ca1e3012694dfbbdca9383b44f5c` from `r7/finalize-v1`.
 
-This revision intentionally creates a fresh PR event after the bootstrap workflow is present on `main`, so GitHub Actions can instantiate the R7 verification jobs against the current PR head.
+That run completed successfully across both jobs and exercised the following gates:
+
+- frozen pnpm lockfile installation;
+- formatting, linting, TypeScript typechecking, and placeholder scanning;
+- 28 deterministic unit/adversarial tests;
+- repeat migration plus database smoke;
+- 7 PostgreSQL integration tests covering competing claims, lease fencing/recovery, rollback, restart recovery, durable signals, retry exhaustion, and cancellation races;
+- build plus public-export consumer smoke;
+- all required executable examples, including transient provider retry/tool-loop recovery and crash/lease recovery;
+- internal benchmark smoke (not a superiority benchmark);
+- high-severity dependency audit with no known vulnerabilities reported by pnpm;
+- Docker Compose validation and PostgreSQL fresh-start smoke;
+- production-container build.
+
+The issue-comment bootstrap exists only because connector-authored push/pull-request events did not instantiate Actions runs in this execution environment. It checks out the unmerged candidate explicitly and is used as a falsification harness, not as evidence of a merge. The canonical PR workflow remains in the implementation branch.
+
+After this evidence record and CI-maintenance updates are committed, the final branch head is re-run through the same complete gate. The immutable final run/SHA pair is also recorded on PR #1 so the repository can preserve a tested-head proof without creating another documentation-only commit.
+
+No claim is made here of production readiness, exactly-once execution, external benchmark superiority, or SOTA status.
