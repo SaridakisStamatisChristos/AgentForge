@@ -1,25 +1,25 @@
 # Evidence status
 
-R7 execution evidence is now established for the V1 candidate rather than assumed from implementation artifacts.
+AgentForge V1 closure evidence is execution-based rather than inferred from repository structure.
 
-Reference full verification run: GitHub Actions `r7-pr-bootstrap` run `38930189319`, which explicitly checked out implementation commit `adfb21b31113ca1e3012694dfbbdca9383b44f5c` from `r7/finalize-v1`.
+The reference implementation verification is GitHub Actions run `38939208029` on head `8e25c32f980feaa7a73c023aa644aba81c59c1b6`. Both `verify` and `compose-smoke` completed successfully.
 
-That run completed successfully across both jobs and exercised the following gates:
+Observed evidence from that run:
 
 - frozen pnpm lockfile installation;
-- formatting, linting, TypeScript typechecking, and placeholder scanning;
-- 28 deterministic unit/adversarial tests;
-- repeat migration plus database smoke;
-- 7 PostgreSQL integration tests covering competing claims, lease fencing/recovery, rollback, restart recovery, durable signals, retry exhaustion, and cancellation races;
-- build plus public-export consumer smoke;
-- all required executable examples, including transient provider retry/tool-loop recovery and crash/lease recovery;
-- internal benchmark smoke (not a superiority benchmark);
+- formatting, linting, TypeScript typechecking and placeholder scanning;
+- **41/41 deterministic and adversarial unit tests**;
+- state-aware application of `0001_initial.sql` and `0002_tool_definitions.sql`, followed by a second migration pass that skipped both applied versions;
+- database smoke;
+- **13/13 PostgreSQL integration tests**, including durable API idempotency across restart, side-effect crash/reuse, durable tool definitions, metrics, competing claims, generation fencing, transaction rollback, store recreation, durable signals, retry exhaustion, cancellation race, and a real worker-process `SIGKILL` followed by reclaim/recovery;
+- build and public-export consumer smoke;
+- required executable hello, resilient-agent and recovery examples;
+- internal benchmark smoke, explicitly not a superiority benchmark;
 - high-severity dependency audit with no known vulnerabilities reported by pnpm;
-- Docker Compose validation and PostgreSQL fresh-start smoke;
-- production-container build.
+- Docker Compose validation, fresh PostgreSQL startup and production-container build.
 
-The issue-comment bootstrap exists only because connector-authored push/pull-request events did not instantiate Actions runs in this execution environment. It checks out the unmerged candidate explicitly and is used as a falsification harness, not as evidence of a merge. The canonical PR workflow remains in the implementation branch.
+The successful process-kill test launches a PostgreSQL-backed worker in a child process, waits for an active attempt, kills it with `SIGKILL`, expires the persisted lease, starts a replacement worker, and verifies `LEASE_LOST`, successful replacement completion and a `lease.recovered` event.
 
-After this evidence record and CI-maintenance updates are committed, the final branch head is re-run through the same complete gate. The immutable final run/SHA pair is also recorded on PR #1 so the repository can preserve a tested-head proof without creating another documentation-only commit.
+This document is part of the final documentation/currentness repair after the reference implementation run. To avoid invalidating the final tested head with an evidence-only commit, the immutable **final exact-head run/SHA pair is recorded on PR #2** after this documentation commit is rerun through the permanent workflow.
 
-No claim is made here of production readiness, exactly-once execution, external benchmark superiority, or SOTA status.
+No claim is made here of production readiness, arbitrary exactly-once external effects, external benchmark superiority, or SOTA status.

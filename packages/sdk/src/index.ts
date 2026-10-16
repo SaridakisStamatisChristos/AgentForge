@@ -7,10 +7,21 @@ import {
   type WorkflowRun,
   type WorkflowVersion,
 } from '@agentforge/contracts';
+import { ToolRegistry, jsonSchema, type ToolDefinition, type ToolSchema, type ToolContext } from '@agentforge/tools';
+import { validateWorkflowDefinition } from '@agentforge/workflows';
 
 export function defineWorkflow(definition: WorkflowDefinition): WorkflowDefinition {
-  return definition;
+  return validateWorkflowDefinition(definition);
 }
+
+export function createToolRegistry(definitions: readonly ToolDefinition[] = []): ToolRegistry {
+  const registry = new ToolRegistry();
+  for (const definition of definitions) registry.register(definition);
+  return registry;
+}
+
+export { ToolRegistry, jsonSchema };
+export type { ToolDefinition, ToolSchema, ToolContext };
 
 export type ClientOptions = {
   baseUrl: string;
@@ -58,11 +69,15 @@ export class AgentForgeClient {
   }
 
   async createWorkflow(definition: WorkflowDefinition): Promise<WorkflowVersion> {
-    return this.request('/v1/workflows', { method: 'POST', body: JSON.stringify(definition) });
+    return this.request('/v1/workflows', { method: 'POST', body: JSON.stringify(defineWorkflow(definition)) });
   }
 
-  async startRun(workflowVersionId: string, input: JsonValue): Promise<WorkflowRun> {
-    return this.request('/v1/runs', { method: 'POST', body: JSON.stringify({ workflowVersionId, input }) });
+  async startRun(workflowVersionId: string, input: JsonValue, options: { idempotencyKey?: string } = {}): Promise<WorkflowRun> {
+    return this.request('/v1/runs', {
+      method: 'POST',
+      body: JSON.stringify({ workflowVersionId, input }),
+      ...(options.idempotencyKey === undefined ? {} : { headers: { 'idempotency-key': options.idempotencyKey } }),
+    });
   }
 
   async getRun(runId: string): Promise<WorkflowRun> {

@@ -6,5 +6,9 @@
   "exports": { ".": { "types": "./dist/index.d.ts", "development": "./src/index.ts", "default": "./dist/index.js" } },
   "types": "./dist/index.d.ts",
   "files": ["dist", "src"],
-  "dependencies": { "@agentforge/contracts": "workspace:*" }
+  "dependencies": {
+    "@agentforge/contracts": "workspace:*",
+    "@agentforge/tools": "workspace:*",
+    "@agentforge/workflows": "workspace:*"
+  }
 }

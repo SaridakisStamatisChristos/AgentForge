@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": { "types": "./dist/index.d.ts", "development": "./src/index.ts", "default": "./dist/index.js" },
-    "./openapi": { "types": "./dist/openapi.d.ts", "development": "./src/openapi.ts", "default": "./dist/openapi.js" }
+    "./openapi": { "types": "./dist/openapi.d.ts", "development": "./src/openapi.ts", "default": "./dist/openapi.js" },
+    "./metrics": { "types": "./dist/metrics.d.ts", "development": "./src/metrics.ts", "default": "./dist/metrics.js" },
+    "./idempotency": { "types": "./dist/idempotency.d.ts", "development": "./src/idempotency.ts", "default": "./dist/idempotency.js" }
   },
   "types": "./dist/index.d.ts",
   "dependencies": {

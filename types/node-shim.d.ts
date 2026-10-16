@@ -25,9 +25,13 @@ declare module 'node:child_process' {
   export type SpawnedProcess = {
     stdout: { on(event: 'data', listener: (chunk: Uint8Array) => void): void };
     stderr: { on(event: 'data', listener: (chunk: Uint8Array) => void): void };
-    stdin: { end(content?: string): void };
+    stdin: {
+      on(event: 'error', listener: (error: Error) => void): void;
+      end(content?: string): void;
+    };
     on(event: 'error', listener: (error: Error) => void): void;
     on(event: 'close', listener: (code: number | null) => void): void;
+    kill(signal?: string): boolean;
   };
   export function spawn(command: string, args?: string[], options?: unknown): SpawnedProcess;
   export function spawnSync(command: string, args?: string[], options?: unknown): { status: number | null };

@@ -1,5 +1,6 @@
 import {
   AgentForgeError,
+  asAgentForgeError,
   assertJsonValue,
   jsonByteLength,
   type JsonValue,
@@ -70,7 +71,12 @@ export class ToolRegistry {
     if (tool.sideEffect === 'SIDE_EFFECTING' && (context.idempotencyKey === undefined || context.idempotencyKey.length === 0)) {
       throw new AgentForgeError({ code: 'IDEMPOTENCY_KEY_REQUIRED', category: 'TOOL', message: `Tool ${name} requires an idempotency key` });
     }
-    const output = await tool.handler(parsed, context);
+    let output: JsonValue;
+    try {
+      output = await tool.handler(parsed, context);
+    } catch (error) {
+      throw asAgentForgeError(error, { code: 'TOOL_EXECUTION_FAILED', category: 'TOOL' });
+    }
     const validated = tool.outputSchema?.validate(output) ?? jsonSchema.validate(output);
     if (jsonByteLength(validated) > maxOutputBytes) {
       throw new AgentForgeError({ code: 'TOOL_OUTPUT_TOO_LARGE', category: 'TOOL', message: `Tool output exceeded ${maxOutputBytes} bytes`, retryable: false });

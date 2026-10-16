@@ -7,6 +7,7 @@ await mkdir(scope, { recursive: true });
 
 const workspaces = [
   ['api', resolve(root, 'apps', 'api')],
+  ['worker', resolve(root, 'apps', 'worker')],
   ...['contracts','core','workflows','runtime','queue','persistence','events','tools','providers','sdk','testing']
     .map((name) => [name, resolve(root, 'packages', name)]),
 ];
