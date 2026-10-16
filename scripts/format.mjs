@@ -24,7 +24,7 @@ for (const item of roots) await walk(resolve(root, item));
 let failed = false;
 for (const file of files) {
   const original = await readFile(file, 'utf8');
-  const normalized = original.split(/\r?\n/).map((line) => line.replace(/[ \t]+$/g, '')).join('\n').replace(/\n*$/g, '\n');
+  const normalized = original.split(/\r?\n/).map((line) => line.replace(/[ \t]+$/g, '')).join('\n').replace(/\n*$/, '\n');
   if (original !== normalized) {
     if (mode === 'write') await writeFile(file, normalized);
     else { console.error(`format drift: ${file.slice(root.length + 1)}`); failed = true; }
