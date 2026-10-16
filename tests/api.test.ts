@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createApi } from '../apps/api/src/index.js';
-import { API_ROUTE_KEYS, OPENAPI_DOCUMENT } from '../apps/api/src/openapi.js';
+import { createApi } from '@agentforge/api';
+import { API_ROUTE_KEYS, OPENAPI_DOCUMENT } from '@agentforge/api/openapi';
 import { ProviderRegistry } from '@agentforge/providers';
 import { TaskRegistry, Worker } from '@agentforge/runtime';
 import { AgentForgeClient } from '@agentforge/sdk';
