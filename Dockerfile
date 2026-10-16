@@ -13,4 +13,4 @@ COPY benchmarks ./benchmarks
 COPY docs ./docs
 RUN pnpm install --frozen-lockfile && pnpm build
 ENV DATABASE_URL=postgresql://agentforge:agentforge@postgres:5432/agentforge
-CMD ["node", "--conditions=development", "apps/api/dist/index.js"]
+CMD ["node", "apps/api/dist/index.js"]
