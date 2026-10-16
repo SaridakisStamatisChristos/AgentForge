@@ -12,6 +12,11 @@ declare const process: {
   once(event: 'SIGINT' | 'SIGTERM', listener: () => void): void;
 };
 
+declare const Buffer: {
+  byteLength(value: string): number;
+  concat(chunks: readonly Uint8Array[]): Uint8Array;
+};
+
 declare module 'node:crypto' {
   export function randomUUID(): string;
 }
@@ -65,9 +70,12 @@ declare module 'node:http' {
     end(chunk?: string): void;
   };
   export type Server = {
+    readonly listening: boolean;
     listen(port: number, host: string, callback?: () => void): void;
     close(callback?: (error?: Error) => void): void;
     address(): { port: number; address: string; family: string } | string | null;
+    once(event: 'error', listener: (error: Error) => void): void;
+    removeListener(event: 'error', listener: (error: Error) => void): void;
   };
   export function createServer(handler: (request: IncomingMessage, response: ServerResponse) => void | Promise<void>): Server;
 }
