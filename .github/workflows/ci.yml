@@ -1,0 +1,94 @@
+name: ci
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: agentforge
+          POSTGRES_PASSWORD: agentforge
+          POSTGRES_DB: agentforge_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agentforge -d agentforge_test"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 30
+    env:
+      DATABASE_URL: postgresql://agentforge:agentforge@127.0.0.1:5432/agentforge_test
+      AGENTFORGE_ALLOW_TEST_DB_RESET: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+          cache: pnpm
+      - name: Toolchain
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.18.3 --activate
+          npm install --global typescript@5.8.3
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Static gates
+        run: |
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm check:placeholders
+      - name: Deterministic unit and adversarial tests
+        run: pnpm test:unit
+      - name: Migration and database smoke
+        run: |
+          pnpm db:migrate
+          pnpm db:smoke
+      - name: PostgreSQL integration tests
+        run: pnpm test:integration
+      - name: Build and public export smoke
+        run: |
+          pnpm build
+          pnpm consumer:check
+      - name: Required executable examples
+        run: |
+          pnpm example:hello
+          pnpm example:agent
+          pnpm example:recovery
+      - name: Benchmark smoke
+        run: pnpm benchmark:smoke
+      - name: Dependency audit
+        run: pnpm audit --audit-level=high
+
+  compose-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose
+        run: docker compose config
+      - name: PostgreSQL fresh-start smoke
+        run: |
+          docker compose up -d postgres
+          for i in $(seq 1 30); do
+            if docker compose exec -T postgres pg_isready -U agentforge -d agentforge; then exit 0; fi
+            sleep 1
+          done
+          docker compose logs postgres
+          exit 1
+      - name: Container build
+        run: docker build -t agentforge:ci .
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
