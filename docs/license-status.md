@@ -1,5 +1,7 @@
 # License status
 
-No open-source/permissive license has been selected by this R7 execution. The repository includes `LICENSE-NOTICE.md` to make that absence explicit rather than silently assigning legal terms.
+AgentForge is distributed under the repository's proprietary `LICENSE`. Public source visibility does not make the project open source and does not grant production, redistribution, derivative-work, hosted-service, or commercial-use rights beyond any separate written authorization from the copyright holder.
 
-Dependency/source licensing must be evaluated from actual dependencies. No third-party source code is copied into AgentForge by this implementation.
+`LICENSE-NOTICE.md` remains a short pointer for repository readers; the `LICENSE` file is the authoritative project license text.
+
+Third-party dependencies remain subject to their own licenses and terms. No third-party source code is copied into AgentForge by the V1 implementation.
