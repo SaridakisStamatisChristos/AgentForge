@@ -36,6 +36,7 @@ The durable queue is PostgreSQL-backed; Redis is intentionally absent in V1. Cla
 - **Workflow version pinning.** A run keeps the exact workflow version it started with.
 - **Monotonic cancellation.** Cancellation revokes future ordinary work and prevents stale success from resurrecting a cancelled run.
 - **Durable wait/signal.** A run may enter `WAITING`, survive process replacement, accept a named deduplicated signal, and resume downstream scheduling.
+- **Idempotent run submission.** `POST /v1/runs` accepts `Idempotency-Key`; same-key/same-request replay returns the original run, while conflicting reuse fails closed.
 
 See [execution model](docs/execution-model.md), [failure semantics](docs/failure-semantics.md), [state machines](docs/state-machines.md), and [idempotency](docs/idempotency.md).
 
@@ -53,14 +54,7 @@ pnpm db:migrate
 pnpm dev
 ```
 
-Or run API and worker separately:
-
-```bash
-pnpm dev:api
-pnpm dev:worker
-```
-
-Default API: `http://127.0.0.1:8787`.
+`pnpm dev` uses `http://127.0.0.1:8787` unless `AGENTFORGE_API_PORT` is set. Compose also publishes port `8787`. When running `pnpm dev:api` directly without environment configuration, use the API process's built-in fallback or export the values from `.env.example` explicitly.
 
 Health surfaces:
 
@@ -91,51 +85,34 @@ const run = await client.startRun(workflow.id, { hello: 'world' });
 console.log(await client.getRun(run.id));
 ```
 
-Run it:
+Run it with `pnpm example:hello`.
 
-```bash
-pnpm example:hello
-```
+## Failure-recovery demonstrations
 
-## Failure-recovery demonstration
+`pnpm example:recovery` deterministically demonstrates lease-expiry recovery and stale-generation fencing. The PostgreSQL integration suite goes further: it launches a worker in a real child process, kills it with `SIGKILL` during an active attempt, starts a replacement worker after lease expiry, and verifies lost-attempt history plus successful recovery.
 
-`pnpm example:recovery` automates the defining failure story:
-
-```text
-Worker-1 claims Step-X under generation G1
-  -> execution starts
-  -> simulated process crash before authoritative commit
-  -> G1 expires
-Worker-2 reclaims Step-X under G2
-  -> G2 commits
-  -> a late G1 completion is explicitly attempted and fenced
-  -> downstream Step-Y executes once
-  -> run reaches SUCCEEDED
-  -> ordered history includes lease.recovered and the lost attempt
-```
-
-`pnpm example:agent` separately demonstrates a deterministic tool-using agent whose first provider attempt fails transiently and is recovered by the runtime retry mechanism.
+`pnpm example:agent` demonstrates a deterministic tool-using agent whose first provider attempt fails transiently and is recovered by the runtime retry mechanism.
 
 ## Monorepo map
 
 ```text
-apps/api          HTTP/SSE control plane
-apps/worker       durable worker process
-packages/contracts domain types, states, errors
-packages/core      transition + retry rules
-packages/workflows workflow validation/DAG semantics
-packages/runtime   worker/execution/agent engine
-packages/queue     lease/claim SQL contracts
-packages/persistence PostgreSQL adapter + migrations
-packages/events    typed event utilities
-packages/tools     typed tool registry/idempotency policy
-packages/providers deterministic + optional HTTP provider adapter
-packages/sdk       ergonomic TypeScript client
-packages/testing   deterministic clock/random/store test oracle
-examples/          executable hello/agent/recovery demonstrations
-integration/       real PostgreSQL concurrency/recovery tests
-benchmarks/runtime internal reproducible benchmark harness
-docs/              architecture, semantics, operations, security, ADRs
+apps/api             HTTP/SSE control plane
+apps/worker          durable worker process
+packages/contracts   domain types, states, errors
+packages/core        transition + retry rules
+packages/workflows   workflow validation/DAG semantics
+packages/runtime     worker/execution/agent engine
+packages/queue       lease/claim SQL contracts
+packages/persistence PostgreSQL adapter, durable tool definitions + migrations
+packages/events      typed event utilities + EventSource/EventSink boundary
+packages/tools       typed tool registry/idempotency policy
+packages/providers   deterministic + optional HTTP provider adapter
+packages/sdk         validated workflow/client + embedded tool-registry helpers
+packages/testing     deterministic clock/random/store test oracle
+examples/            executable hello/agent/recovery demonstrations
+integration/         real PostgreSQL concurrency/restart/process-kill tests
+benchmarks/runtime   internal reproducible benchmark harness
+docs/                architecture, semantics, operations, security, ADRs
 ```
 
 ## Verification
@@ -163,6 +140,8 @@ V1 intentionally does not provide a visual workflow designer, n8n compatibility,
 
 The reference API trust boundary is local/private deployment. Input is validated and bounded, SQL is parameterized, obvious secrets are not embedded, and error responses omit stacks, but V1 does not include an internet-facing identity/authentication layer.
 
+The `EventSink` extension point does not by itself claim durable cross-service delivery. A future asynchronous external-delivery adapter must add a transactional outbox or equivalent durable consistency boundary before making crash-safe delivery claims.
+
 ## Portfolio relationship
 
 - **Workflows-N8N**: workflow authoring, automation and integration design.
@@ -173,4 +152,4 @@ These are conceptual portfolio boundaries only. AgentForge has no runtime depend
 
 ## License
 
-No open-source license is selected by this implementation. See `LICENSE-NOTICE.md`; license selection remains an explicit owner/legal decision.
+AgentForge is distributed under the proprietary license in `LICENSE`. Public source visibility permits only the rights stated in that license and does not make the project open source. See `LICENSE` and `docs/license-status.md` for the repository's current licensing status.
