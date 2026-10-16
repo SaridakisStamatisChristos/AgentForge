@@ -1,0 +1,15 @@
+{
+  "name": "@agentforge/example-hello-workflow",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@agentforge/api": "workspace:*",
+    "@agentforge/contracts": "workspace:*",
+    "@agentforge/providers": "workspace:*",
+    "@agentforge/runtime": "workspace:*",
+    "@agentforge/testing": "workspace:*",
+    "@agentforge/tools": "workspace:*",
+    "@agentforge/sdk": "workspace:*"
+  }
+}

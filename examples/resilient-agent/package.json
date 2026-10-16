@@ -1,0 +1,13 @@
+{
+  "name": "@agentforge/example-resilient-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@agentforge/contracts": "workspace:*",
+    "@agentforge/providers": "workspace:*",
+    "@agentforge/runtime": "workspace:*",
+    "@agentforge/testing": "workspace:*",
+    "@agentforge/tools": "workspace:*"
+  }
+}

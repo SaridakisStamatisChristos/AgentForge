@@ -1,0 +1,36 @@
+{
+  "name": "agentforge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.18.3",
+  "engines": {
+    "node": ">=22.0.0 <23"
+  },
+  "scripts": {
+    "postinstall": "node scripts/link-workspaces.mjs",
+    "link:workspaces": "node scripts/link-workspaces.mjs",
+    "format": "node scripts/format.mjs --write",
+    "format:check": "node scripts/format.mjs --check",
+    "lint": "node scripts/lint.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "node scripts/build.mjs",
+    "test": "node --experimental-transform-types --conditions=development --test tests/*.test.ts tests/*.test.mjs integration/*.test.ts integration/*.test.mjs",
+    "test:unit": "node --experimental-transform-types --conditions=development --test tests/*.test.ts tests/*.test.mjs",
+    "test:integration": "node --experimental-transform-types --conditions=development --test integration/*.test.ts integration/*.test.mjs",
+    "test:all": "pnpm test:unit && pnpm test:integration",
+    "db:migrate": "node --experimental-transform-types --conditions=development scripts/migrate.ts",
+    "db:smoke": "node --experimental-transform-types --conditions=development scripts/db-smoke.ts",
+    "dev:infra": "docker compose up -d postgres",
+    "dev:api": "node --experimental-transform-types --conditions=development apps/api/src/index.ts",
+    "dev:worker": "node --experimental-transform-types --conditions=development apps/worker/src/index.ts",
+    "dev": "node scripts/dev.mjs",
+    "example:hello": "node --experimental-transform-types --conditions=development examples/hello-workflow/src/index.ts",
+    "example:agent": "node --experimental-transform-types --conditions=development examples/resilient-agent/src/index.ts",
+    "example:recovery": "node --experimental-transform-types --conditions=development examples/failure-recovery/src/index.ts",
+    "benchmark:smoke": "node --experimental-transform-types --conditions=development benchmarks/runtime/benchmark.ts --smoke",
+    "consumer:check": "node scripts/consumer-check.mjs",
+    "check:placeholders": "node scripts/check-placeholders.mjs",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm build && pnpm consumer:check && pnpm check:placeholders"
+  }
+}

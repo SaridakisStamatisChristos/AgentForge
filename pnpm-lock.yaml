@@ -1,0 +1,206 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .: {}
+
+  apps/api:
+    dependencies:
+      '@agentforge/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@agentforge/persistence':
+        specifier: workspace:*
+        version: link:../../packages/persistence
+      '@agentforge/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
+      '@agentforge/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@agentforge/tools':
+        specifier: workspace:*
+        version: link:../../packages/tools
+
+  apps/worker:
+    dependencies:
+      '@agentforge/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@agentforge/persistence':
+        specifier: workspace:*
+        version: link:../../packages/persistence
+      '@agentforge/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
+      '@agentforge/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@agentforge/tools':
+        specifier: workspace:*
+        version: link:../../packages/tools
+
+  examples/failure-recovery:
+    dependencies:
+      '@agentforge/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@agentforge/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
+      '@agentforge/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@agentforge/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
+      '@agentforge/tools':
+        specifier: workspace:*
+        version: link:../../packages/tools
+
+  examples/hello-workflow:
+    dependencies:
+      '@agentforge/api':
+        specifier: workspace:*
+        version: link:../../apps/api
+      '@agentforge/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@agentforge/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
+      '@agentforge/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@agentforge/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      '@agentforge/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
+      '@agentforge/tools':
+        specifier: workspace:*
+        version: link:../../packages/tools
+
+  examples/resilient-agent:
+    dependencies:
+      '@agentforge/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@agentforge/providers':
+        specifier: workspace:*
+        version: link:../../packages/providers
+      '@agentforge/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@agentforge/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
+      '@agentforge/tools':
+        specifier: workspace:*
+        version: link:../../packages/tools
+
+  packages/contracts: {}
+
+  packages/core:
+    dependencies:
+      '@agentforge/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/events:
+    dependencies:
+      '@agentforge/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/persistence:
+    dependencies:
+      '@agentforge/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@agentforge/core':
+        specifier: workspace:*
+        version: link:../core
+      '@agentforge/queue':
+        specifier: workspace:*
+        version: link:../queue
+      '@agentforge/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@agentforge/workflows':
+        specifier: workspace:*
+        version: link:../workflows
+
+  packages/providers:
+    dependencies:
+      '@agentforge/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/queue:
+    dependencies:
+      '@agentforge/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/runtime:
+    dependencies:
+      '@agentforge/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@agentforge/core':
+        specifier: workspace:*
+        version: link:../core
+      '@agentforge/providers':
+        specifier: workspace:*
+        version: link:../providers
+      '@agentforge/tools':
+        specifier: workspace:*
+        version: link:../tools
+      '@agentforge/workflows':
+        specifier: workspace:*
+        version: link:../workflows
+
+  packages/sdk:
+    dependencies:
+      '@agentforge/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/testing:
+    dependencies:
+      '@agentforge/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@agentforge/providers':
+        specifier: workspace:*
+        version: link:../providers
+      '@agentforge/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@agentforge/tools':
+        specifier: workspace:*
+        version: link:../tools
+      '@agentforge/workflows':
+        specifier: workspace:*
+        version: link:../workflows
+
+  packages/tools:
+    dependencies:
+      '@agentforge/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
+  packages/workflows:
+    dependencies:
+      '@agentforge/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@agentforge/core':
+        specifier: workspace:*
+        version: link:../core
