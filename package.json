@@ -8,6 +8,7 @@
     "node": ">=22.0.0 <23"
   },
   "scripts": {
+    "postinstall": "node scripts/link-workspaces.mjs",
     "link:workspaces": "node scripts/link-workspaces.mjs",
     "format": "node scripts/format.mjs --write",
     "format:check": "node scripts/format.mjs --check",
