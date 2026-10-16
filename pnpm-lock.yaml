@@ -171,6 +171,12 @@ importers:
       '@agentforge/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@agentforge/tools':
+        specifier: workspace:*
+        version: link:../tools
+      '@agentforge/workflows':
+        specifier: workspace:*
+        version: link:../workflows
 
   packages/testing:
     dependencies:
