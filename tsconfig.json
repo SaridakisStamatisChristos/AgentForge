@@ -15,6 +15,7 @@
     "types": [],
     "baseUrl": ".",
     "paths": {
+      "@agentforge/api": ["apps/api/src/index.ts"],
       "@agentforge/contracts": ["packages/contracts/src/index.ts"],
       "@agentforge/core": ["packages/core/src/index.ts"],
       "@agentforge/workflows": ["packages/workflows/src/index.ts"],
