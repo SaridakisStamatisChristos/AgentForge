@@ -1,9 +1,11 @@
 import { DeterministicProvider, ProviderRegistry } from '@agentforge/providers';
 import { RuntimeService, TaskRegistry, Worker } from '@agentforge/runtime';
-import { MemoryStore } from '@agentforge/testing';
+import { FakeClock, MemoryStore, SequenceRandom } from '@agentforge/testing';
 import { ToolRegistry, jsonSchema } from '@agentforge/tools';
 
-const store = new MemoryStore();
+const clock = new FakeClock();
+const random = new SequenceRandom([0.5]);
+const store = new MemoryStore(clock);
 const runtime = new RuntimeService(store);
 const providers = new ProviderRegistry();
 providers.register('deterministic', new DeterministicProvider([
@@ -40,6 +42,9 @@ const worker = new Worker(
   tools,
   providers,
   { workerId: 'resilient-worker', concurrency: 1, claimBatchSize: 1, leaseMs: 1000, heartbeatMs: 100, pollMs: 10, gracefulShutdownMs: 100 },
+  undefined,
+  clock,
+  random,
 );
 
 for (let guard = 0; guard < 10; guard += 1) {
