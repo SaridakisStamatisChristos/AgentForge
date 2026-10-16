@@ -69,6 +69,46 @@ text = text[:start] + segment + text[end:]
 start = text.index('  async submitSignal(')
 end = text.index('  async writeCheckpoint(', start)
 segment = text[start:end]
+old_signal_prefix = """WITH existing AS (
+  SELECT id, delivered_step_run_id FROM signals WHERE run_id = :'run_id' AND name = :'name' AND dedupe_key = :'dedupe_key'
+), inserted AS (
+  INSERT INTO signals(id, run_id, name, payload, dedupe_key)
+  SELECT :'signal_id', :'run_id', :'name', :'payload'::jsonb, :'dedupe_key'
+  WHERE NOT EXISTS (SELECT 1 FROM existing)
+  ON CONFLICT DO NOTHING
+  RETURNING *
+), target AS (
+  UPDATE step_runs s SET state = 'SUCCEEDED', wait_signal_name = NULL, output = :'payload'::jsonb, updated_at = clock_timestamp()
+  WHERE s.run_id = :'run_id' AND s.state = 'WAITING' AND s.wait_signal_name = :'name' AND EXISTS (SELECT 1 FROM inserted)
+  RETURNING s.*
+), signal_update AS (
+  UPDATE signals SET delivered_at = clock_timestamp(), delivered_step_run_id = (SELECT id FROM target LIMIT 1)
+  WHERE id = :'signal_id' AND EXISTS (SELECT 1 FROM target) RETURNING *
+), cleanup AS (
+  DELETE FROM signals WHERE id = :'signal_id' AND EXISTS (SELECT 1 FROM inserted) AND NOT EXISTS (SELECT 1 FROM target) RETURNING id
+), run_update AS ("""
+new_signal_prefix = """WITH existing AS (
+  SELECT id, delivered_step_run_id FROM signals WHERE run_id = :'run_id' AND name = :'name' AND dedupe_key = :'dedupe_key'
+), waiting AS (
+  SELECT s.id FROM step_runs s
+  WHERE s.run_id = :'run_id' AND s.state = 'WAITING' AND s.wait_signal_name = :'name'
+    AND NOT EXISTS (SELECT 1 FROM existing)
+  ORDER BY s.created_at, s.id
+  FOR UPDATE
+  LIMIT 1
+), inserted AS (
+  INSERT INTO signals(id, run_id, name, payload, dedupe_key, delivered_at, delivered_step_run_id)
+  SELECT :'signal_id', :'run_id', :'name', :'payload'::jsonb, :'dedupe_key', clock_timestamp(), w.id
+  FROM waiting w
+  ON CONFLICT DO NOTHING
+  RETURNING *
+), target AS (
+  UPDATE step_runs s SET state = 'SUCCEEDED', wait_signal_name = NULL, output = :'payload'::jsonb, updated_at = clock_timestamp()
+  FROM inserted i
+  WHERE s.id = i.delivered_step_run_id AND s.run_id = :'run_id' AND s.state = 'WAITING' AND s.wait_signal_name = :'name'
+  RETURNING s.*
+), run_update AS ("""
+segment = replace_once(segment, old_signal_prefix, new_signal_prefix, 'signal durable delivery record')
 segment = replace_once(segment,
     "WHERE wr.id = sr.run_id AND js->>'id' = sr.step_id AND d.state <> 'SUCCEEDED'",
     "WHERE wr.id = sr.run_id AND js->>'id' = sr.step_id AND d.state <> 'SUCCEEDED' AND d.id NOT IN (SELECT id FROM target)",
@@ -94,5 +134,9 @@ new_terminal = """), event_terminal AS (
   FROM run_update r WHERE r.state='SUCCEEDED'
 )"""
 segment = replace_once(segment, old_terminal, new_terminal, 'signal terminal transition')
+segment = replace_once(segment,
+    "  'queued', (SELECT count(*) FROM queued),\n  'signal_updated', (SELECT count(*) FROM signal_update),\n  'cleaned', (SELECT count(*) FROM cleanup)",
+    "  'queued', (SELECT count(*) FROM queued)",
+    'signal obsolete sibling counters')
 text = text[:start] + segment + text[end:]
 persistence.write_text(text)
