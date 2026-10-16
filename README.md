@@ -11,21 +11,60 @@ It is **not** an n8n clone, a visual workflow builder, a chat UI, a prompt-wrapp
 ## Architecture
 
 ```mermaid
-flowchart LR
-  SDK[TypeScript SDK] --> API[apps/api\nHTTP + SSE control plane]
-  API --> PG[(PostgreSQL)]
-  Worker[apps/worker\nbounded durable worker] --> PG
-  Worker --> Runtime[packages/runtime]
-  Runtime --> Core[core + workflows + contracts]
-  Runtime --> Tools[tool registry]
-  Runtime --> Providers[provider adapters]
-  Tools --> External[External systems]
-  Providers --> Models[Deterministic / optional HTTP model]
-  PG --> Events[ordered durable event history]
-  API --> Events
+flowchart TB
+  subgraph Consumers["Consumers"]
+    App["Application / operator"]
+    SDK["TypeScript SDK"]
+  end
+
+  subgraph Control["Control plane"]
+    API["apps/api · HTTP + SSE"]
+    Service["RuntimeService"]
+  end
+
+  subgraph Execution["Execution plane"]
+    Worker["apps/worker · bounded worker"]
+    Queue["packages/queue · transactional claims"]
+    Runtime["packages/runtime · durable execution engine"]
+  end
+
+  subgraph Durable["Durable state boundary"]
+    Store["packages/persistence · RuntimeStore + transactions"]
+    PG[("PostgreSQL\nruns · pinned workflow versions · queue\nattempts · checkpoints · signals · ordered events")]
+  end
+
+  subgraph Semantics["Pure domain semantics"]
+    Workflows["packages/workflows · DAG validation"]
+    Core["packages/core · transitions + retry rules"]
+    Contracts["packages/contracts · states + errors + events"]
+  end
+
+  subgraph Adapters["Execution adapters"]
+    Tasks["Task registry"]
+    Tools["Tool registry · stable operation keys"]
+    Providers["Provider registry"]
+    External["External systems"]
+    Models["Deterministic / HTTP model providers"]
+  end
+
+  App --> SDK --> API --> Service --> Store
+  Worker --> Queue --> PG
+  PG -->|"lease owner + generation + expiry"| Worker
+  Worker --> Runtime
+  Runtime --> Workflows --> Core --> Contracts
+  Runtime --> Tasks
+  Runtime --> Tools --> External
+  Runtime --> Providers --> Models
+  Runtime -->|"fenced completion / retry / checkpoint"| Store
+  Store <--> PG
+  PG -->|"durable state + ordered history"| API
+  API -->|"inspection + SSE"| SDK
+
+  classDef authority stroke-width:2px,stroke-dasharray:5 4;
+  class Queue,Store,PG authority;
 ```
 
-The durable queue is PostgreSQL-backed; Redis is intentionally absent in V1. Claims use transactional row locking and lease generations. A worker may execute at least once over time, but only the current lease generation may commit an authoritative result.
+PostgreSQL is both the durable source of truth and the queue substrate; Redis is intentionally absent in V1. Claims use transactional row locking and lease generations. A worker may execute at least once over time, but only the current lease generation may commit an authoritative result.
 
 ## Reliability semantics
 
