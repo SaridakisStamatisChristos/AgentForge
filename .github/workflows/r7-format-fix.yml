@@ -1,4 +1,4 @@
-name: r7-format-fix
+name: r7-source-repair
 
 on:
   issue_comment:
@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  format:
-    if: github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request && contains(github.event.comment.body, '/r7-format'))
+  repair:
+    if: github.event_name == 'workflow_dispatch' || (github.event.issue.pull_request && contains(github.event.comment.body, '/r7-source-fix'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -21,26 +21,38 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22.16.0
-      - name: Install pnpm
+      - name: Install toolchain
         run: |
           corepack enable
           corepack prepare pnpm@10.18.3 --activate
+          npm install --global typescript@5.8.3
       - name: Frozen install
         run: pnpm install --frozen-lockfile
-      - name: Apply canonical formatting
+      - name: Repair API OpenAPI self-reference
         run: |
-          node scripts/format.mjs --write
-          git restore --source=HEAD -- .github/workflows/ci.yml
-      - name: Verify formatter is idempotent
-        run: pnpm format:check
-      - name: Commit normalization
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('apps/api/src/index.ts')
+          text = path.read_text()
+          old = "import { OPENAPI_DOCUMENT } from './openapi.js';"
+          new = "import { OPENAPI_DOCUMENT } from '@agentforge/api/openapi';"
+          if old not in text:
+              raise SystemExit('expected API import not found; refusing broad rewrite')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Verify static and deterministic gates
         run: |
-          if git diff --quiet; then
-            echo "No formatting changes required"
-            exit 0
-          fi
+          pnpm format:check
+          pnpm lint
+          pnpm typecheck
+          pnpm check:placeholders
+          pnpm test:unit
+      - name: Commit exact repair
+        run: |
+          git diff -- apps/api/src/index.ts
+          git diff --exit-code -- . ':(exclude)apps/api/src/index.ts'
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "style: apply canonical R7 formatting"
+          git add apps/api/src/index.ts
+          git commit -m "fix(api): resolve OpenAPI through package self-reference"
           git push origin HEAD:r7/finalize-v1
