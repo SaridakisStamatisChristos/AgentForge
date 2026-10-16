@@ -5,6 +5,8 @@
   "type": "module",
   "exports": {
     ".": { "types": "./dist/public.d.ts", "development": "./src/public.ts", "default": "./dist/public.js" },
+    "./store": { "types": "./dist/index.d.ts", "development": "./src/index.ts", "default": "./dist/index.js" },
+    "./postgres-cli": { "types": "./dist/postgres-cli.d.ts", "development": "./src/postgres-cli.ts", "default": "./dist/postgres-cli.js" },
     "./tool-definitions": { "types": "./dist/tool-definitions.d.ts", "development": "./src/tool-definitions.ts", "default": "./dist/tool-definitions.js" }
   },
   "types": "./dist/public.d.ts",

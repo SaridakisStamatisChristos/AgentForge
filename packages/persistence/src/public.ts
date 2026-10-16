@@ -1,3 +1,3 @@
-export { PostgresStore } from './index.js';
-export { PostgresCli } from './postgres-cli.js';
-export type { PsqlVariables } from './postgres-cli.js';
+export { PostgresStore } from '@agentforge/persistence/store';
+export { PostgresCli } from '@agentforge/persistence/postgres-cli';
+export type { PsqlVariables } from '@agentforge/persistence/postgres-cli';
