@@ -64,6 +64,9 @@ importers:
 
   examples/hello-workflow:
     dependencies:
+      '@agentforge/api':
+        specifier: workspace:*
+        version: link:../../apps/api
       '@agentforge/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
