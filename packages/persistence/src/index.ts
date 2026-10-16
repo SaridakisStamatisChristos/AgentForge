@@ -541,7 +541,7 @@ WITH authority AS (
       CROSS JOIN LATERAL jsonb_array_elements(wv.definition->'steps') js
       CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(js->'dependsOn', '[]'::jsonb)) dep
       JOIN step_runs d ON d.run_id = sr.run_id AND d.step_id = dep.value
-      WHERE wr.id = sr.run_id AND js->>'id' = sr.step_id AND d.state <> 'SUCCEEDED'
+      WHERE wr.id = sr.run_id AND js->>'id' = sr.step_id AND d.state <> 'SUCCEEDED' AND d.id <> :'step_run_id'
     )
   RETURNING sr.*
 ), queued AS (
@@ -555,7 +555,7 @@ WITH authority AS (
   UPDATE workflow_runs r SET state = 'SUCCEEDED', output = jsonb_build_object('status','succeeded'), updated_at = clock_timestamp()
   WHERE r.id = :'run_id' AND r.state IN ('RUNNING','WAITING') AND r.cancellation_requested = false
     AND EXISTS (SELECT 1 FROM authority)
-    AND NOT EXISTS (SELECT 1 FROM step_runs s WHERE s.run_id = r.id AND s.state NOT IN ('SUCCEEDED','SKIPPED'))
+    AND NOT EXISTS (SELECT 1 FROM step_runs s WHERE s.run_id = r.id AND s.id <> :'step_run_id' AND s.state NOT IN ('SUCCEEDED','SKIPPED'))
   RETURNING r.*
 ), event_terminal AS (
   SELECT agentforge_emit_event(t.id, NULL, NULL, 'workflow.succeeded', '{}'::jsonb) AS seq FROM terminal t
@@ -572,6 +572,7 @@ SELECT json_build_object(
       attempt_id: attemptId,
       output: JSON.stringify(output),
       run_id: claim.runId,
+      step_run_id: claim.stepRunId,
     });
     if (rows[0]?.committed !== true) throw new AgentForgeError({ code: 'LEASE_LOST', category: 'LEASE_LOST', message: 'Stale worker completion rejected by lease fence', retryable: true, httpStatus: 409 });
   }
@@ -708,24 +709,37 @@ COMMIT;
     const rows = await this.db.json<{ status: 'accepted' | 'duplicate' | 'invalid'; step_run_id: string | null }>(String.raw`
 WITH existing AS (
   SELECT id, delivered_step_run_id FROM signals WHERE run_id = :'run_id' AND name = :'name' AND dedupe_key = :'dedupe_key'
+), waiting AS (
+  SELECT s.id FROM step_runs s
+  WHERE s.run_id = :'run_id' AND s.state = 'WAITING' AND s.wait_signal_name = :'name'
+    AND NOT EXISTS (SELECT 1 FROM existing)
+  ORDER BY s.created_at, s.id
+  FOR UPDATE
+  LIMIT 1
 ), inserted AS (
-  INSERT INTO signals(id, run_id, name, payload, dedupe_key)
-  SELECT :'signal_id', :'run_id', :'name', :'payload'::jsonb, :'dedupe_key'
-  WHERE NOT EXISTS (SELECT 1 FROM existing)
+  INSERT INTO signals(id, run_id, name, payload, dedupe_key, delivered_at, delivered_step_run_id)
+  SELECT :'signal_id', :'run_id', :'name', :'payload'::jsonb, :'dedupe_key', clock_timestamp(), w.id
+  FROM waiting w
   ON CONFLICT DO NOTHING
   RETURNING *
 ), target AS (
   UPDATE step_runs s SET state = 'SUCCEEDED', wait_signal_name = NULL, output = :'payload'::jsonb, updated_at = clock_timestamp()
-  WHERE s.run_id = :'run_id' AND s.state = 'WAITING' AND s.wait_signal_name = :'name' AND EXISTS (SELECT 1 FROM inserted)
+  FROM inserted i
+  WHERE s.id = i.delivered_step_run_id AND s.run_id = :'run_id' AND s.state = 'WAITING' AND s.wait_signal_name = :'name'
   RETURNING s.*
-), signal_update AS (
-  UPDATE signals SET delivered_at = clock_timestamp(), delivered_step_run_id = (SELECT id FROM target LIMIT 1)
-  WHERE id = :'signal_id' AND EXISTS (SELECT 1 FROM target) RETURNING *
-), cleanup AS (
-  DELETE FROM signals WHERE id = :'signal_id' AND EXISTS (SELECT 1 FROM inserted) AND NOT EXISTS (SELECT 1 FROM target) RETURNING id
 ), run_update AS (
-  UPDATE workflow_runs SET state = 'RUNNING', updated_at = clock_timestamp()
-  WHERE id = :'run_id' AND state = 'WAITING' AND EXISTS (SELECT 1 FROM target) RETURNING *
+  UPDATE workflow_runs r
+  SET state = CASE
+        WHEN NOT EXISTS (SELECT 1 FROM step_runs s WHERE s.run_id=r.id AND s.id NOT IN (SELECT id FROM target) AND s.state NOT IN ('SUCCEEDED','SKIPPED')) THEN 'SUCCEEDED'
+        ELSE 'RUNNING'
+      END,
+      output = CASE
+        WHEN NOT EXISTS (SELECT 1 FROM step_runs s WHERE s.run_id=r.id AND s.id NOT IN (SELECT id FROM target) AND s.state NOT IN ('SUCCEEDED','SKIPPED')) THEN jsonb_build_object('status','succeeded')
+        ELSE r.output
+      END,
+      updated_at = clock_timestamp()
+  WHERE r.id = :'run_id' AND r.state = 'WAITING' AND EXISTS (SELECT 1 FROM target)
+  RETURNING r.*
 ), newly_ready AS (
   UPDATE step_runs sr SET state = 'READY', updated_at = clock_timestamp()
   WHERE sr.run_id = :'run_id' AND sr.state = 'PENDING' AND EXISTS (SELECT 1 FROM target)
@@ -736,7 +750,7 @@ WITH existing AS (
       CROSS JOIN LATERAL jsonb_array_elements(wv.definition->'steps') js
       CROSS JOIN LATERAL jsonb_array_elements_text(COALESCE(js->'dependsOn', '[]'::jsonb)) dep
       JOIN step_runs d ON d.run_id = sr.run_id AND d.step_id = dep.value
-      WHERE wr.id = sr.run_id AND js->>'id' = sr.step_id AND d.state <> 'SUCCEEDED'
+      WHERE wr.id = sr.run_id AND js->>'id' = sr.step_id AND d.state <> 'SUCCEEDED' AND d.id NOT IN (SELECT id FROM target)
     )
   RETURNING sr.*
 ), queued AS (
@@ -754,22 +768,16 @@ WITH existing AS (
 ), event_ready AS (
   SELECT agentforge_emit_event(:'run_id', n.id, NULL, 'step.ready', jsonb_build_object('stepId', n.step_id)) AS seq FROM newly_ready n
 ), event_run AS (
-  SELECT agentforge_emit_event(:'run_id', NULL, NULL, 'workflow.started', jsonb_build_object('resumedBySignal', :'name')) AS seq WHERE EXISTS (SELECT 1 FROM run_update)
-), terminal AS (
-  UPDATE workflow_runs r SET state='SUCCEEDED', output=jsonb_build_object('status','succeeded'), updated_at=clock_timestamp()
-  WHERE r.id=:'run_id' AND r.state='RUNNING' AND EXISTS (SELECT 1 FROM target)
-    AND NOT EXISTS (SELECT 1 FROM step_runs s WHERE s.run_id=r.id AND s.state NOT IN ('SUCCEEDED','SKIPPED'))
-  RETURNING r.*
+  SELECT agentforge_emit_event(:'run_id', NULL, NULL, 'workflow.started', jsonb_build_object('resumedBySignal', :'name')) AS seq WHERE EXISTS (SELECT 1 FROM run_update WHERE state='RUNNING')
 ), event_terminal AS (
-  SELECT agentforge_emit_event(t.id, NULL, NULL, 'workflow.succeeded', '{}'::jsonb) AS seq FROM terminal t
+  SELECT agentforge_emit_event(r.id, NULL, NULL, 'workflow.succeeded', '{}'::jsonb) AS seq
+  FROM run_update r WHERE r.state='SUCCEEDED'
 )
 SELECT json_build_object(
   'status', CASE WHEN EXISTS (SELECT 1 FROM existing) THEN 'duplicate' WHEN EXISTS (SELECT 1 FROM target) THEN 'accepted' ELSE 'invalid' END,
   'step_run_id', COALESCE((SELECT id FROM target LIMIT 1), (SELECT delivered_step_run_id FROM existing LIMIT 1)),
   'events', (SELECT count(*) FROM event_signal) + (SELECT count(*) FROM event_duplicate) + (SELECT count(*) FROM event_step) + (SELECT count(*) FROM event_ready) + (SELECT count(*) FROM event_run) + (SELECT count(*) FROM event_terminal),
-  'queued', (SELECT count(*) FROM queued),
-  'signal_updated', (SELECT count(*) FROM signal_update),
-  'cleaned', (SELECT count(*) FROM cleanup)
+  'queued', (SELECT count(*) FROM queued)
 )::text;
 `, { run_id: runId, name, dedupe_key: dedupeKey, signal_id: signalId, payload: JSON.stringify(payload) });
     const row = rows[0];

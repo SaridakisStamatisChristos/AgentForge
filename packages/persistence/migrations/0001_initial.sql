@@ -141,6 +141,11 @@ CREATE TABLE IF NOT EXISTS worker_heartbeats (
   last_seen_at timestamptz NOT NULL DEFAULT clock_timestamp()
 );
 
+CREATE TABLE IF NOT EXISTS run_event_sequences (
+  run_id text PRIMARY KEY REFERENCES workflow_runs(id) ON DELETE CASCADE,
+  next_seq bigint NOT NULL DEFAULT 1 CHECK (next_seq > 0)
+);
+
 CREATE OR REPLACE FUNCTION agentforge_emit_event(
   p_run_id text,
   p_step_run_id text,
@@ -153,13 +158,11 @@ AS $$
 DECLARE
   v_seq bigint;
 BEGIN
-  UPDATE workflow_runs
-  SET next_event_seq = next_event_seq + 1
-  WHERE id = p_run_id
-  RETURNING next_event_seq - 1 INTO v_seq;
-  IF v_seq IS NULL THEN
-    RAISE EXCEPTION 'run not found for event: %', p_run_id;
-  END IF;
+  INSERT INTO run_event_sequences(run_id, next_seq)
+  VALUES (p_run_id, 2)
+  ON CONFLICT (run_id) DO UPDATE
+  SET next_seq = run_event_sequences.next_seq + 1
+  RETURNING run_event_sequences.next_seq - 1 INTO v_seq;
   INSERT INTO execution_events(id, run_id, step_run_id, attempt_id, seq, type, schema_version, payload)
   VALUES (p_run_id || ':event:' || v_seq::text, p_run_id, p_step_run_id, p_attempt_id, v_seq, p_type, 1, COALESCE(p_payload, '{}'::jsonb));
   RETURN v_seq;
