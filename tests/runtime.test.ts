@@ -3,9 +3,8 @@ import assert from 'node:assert/strict';
 import {
   AgentForgeError,
   type LeaseClaim,
-  type ModelResponse,
 } from '@agentforge/contracts';
-import { DeterministicProvider, ProviderRegistry } from '@agentforge/providers';
+import { DeterministicProvider, ProviderRegistry, type ModelResponse } from '@agentforge/providers';
 import {
   RuntimeService,
   SimulatedWorkerCrash,
