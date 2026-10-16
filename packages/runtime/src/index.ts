@@ -180,6 +180,34 @@ export class SimulatedWorkerCrash extends Error {
   }
 }
 
+function parseAgentCheckpoint(checkpoint: Checkpoint, maxIterations: number): { iteration: number; messages: ModelMessage[] } {
+  if (checkpoint.version !== 1) {
+    throw new AgentForgeError({ code: 'CHECKPOINT_INCOMPATIBLE', category: 'CHECKPOINT', message: `Agent checkpoint version ${checkpoint.version} is not supported`, retryable: false });
+  }
+  const payload = checkpoint.payload;
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    throw new AgentForgeError({ code: 'CHECKPOINT_INCOMPATIBLE', category: 'CHECKPOINT', message: 'Agent checkpoint payload must be an object', retryable: false });
+  }
+  const rawIteration = payload.iteration;
+  const rawMessages = payload.messages;
+  if (!Number.isSafeInteger(rawIteration) || (rawIteration as number) < 0 || (rawIteration as number) > maxIterations || !Array.isArray(rawMessages)) {
+    throw new AgentForgeError({ code: 'CHECKPOINT_INCOMPATIBLE', category: 'CHECKPOINT', message: 'Agent checkpoint iteration/messages are invalid', retryable: false });
+  }
+  const messages: ModelMessage[] = rawMessages.map((value, index) => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      throw new AgentForgeError({ code: 'CHECKPOINT_INCOMPATIBLE', category: 'CHECKPOINT', message: `Agent checkpoint message ${index} is not an object`, retryable: false });
+    }
+    const role = value.role;
+    const content = value.content;
+    const name = value.name;
+    if (!['system', 'user', 'assistant', 'tool'].includes(typeof role === 'string' ? role : '') || typeof content !== 'string' || (name !== undefined && typeof name !== 'string')) {
+      throw new AgentForgeError({ code: 'CHECKPOINT_INCOMPATIBLE', category: 'CHECKPOINT', message: `Agent checkpoint message ${index} has an invalid shape`, retryable: false });
+    }
+    return { role: role as ModelMessage['role'], content, ...(name === undefined ? {} : { name }) };
+  });
+  return { iteration: rawIteration as number, messages };
+}
+
 export class Worker {
   private stopping = false;
   private readonly active = new Map<string, AbortController>();
@@ -308,6 +336,9 @@ export class Worker {
       attemptId: attempt.id,
       checkpoint: async (payload, version = 1) => {
         assertJsonValue(payload, 'checkpoint.payload');
+        if (!Number.isSafeInteger(version) || version < 1) {
+          throw new AgentForgeError({ code: 'CHECKPOINT_INCOMPATIBLE', category: 'CHECKPOINT', message: 'Checkpoint version must be a positive integer', retryable: false });
+        }
         return this.store.writeCheckpoint({ claim, attemptId: attempt.id, version, payload, maxBytes: this.limits.maxCheckpointBytes });
       },
       latestCheckpoint: () => this.store.readLatestCheckpoint(snapshot.stepRun.id),
@@ -384,13 +415,10 @@ export class Worker {
     ];
     const restored = await handlerContext.latestCheckpoint();
     let startIteration = 0;
-    if (restored !== null && typeof restored.payload === 'object' && restored.payload !== null && !Array.isArray(restored.payload)) {
-      const rawIteration = restored.payload.iteration;
-      const rawMessages = restored.payload.messages;
-      if (typeof rawIteration === 'number' && Array.isArray(rawMessages)) {
-        startIteration = rawIteration;
-        messages.splice(0, messages.length, ...(rawMessages as unknown as ModelMessage[]));
-      }
+    if (restored !== null) {
+      const parsed = parseAgentCheckpoint(restored, step.maxIterations);
+      startIteration = parsed.iteration;
+      messages.splice(0, messages.length, ...parsed.messages);
     }
     for (let iteration = startIteration; iteration < step.maxIterations; iteration += 1) {
       if (signal.aborted) throw new AgentForgeError({ code: 'AGENT_CANCELLED', category: 'CANCELLATION', message: 'Agent loop cancelled' });
