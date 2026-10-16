@@ -11,7 +11,7 @@ import {
   RuntimeService,
   type RuntimeStore,
 } from '@agentforge/runtime';
-import { OPENAPI_DOCUMENT } from './openapi.js';
+import { OPENAPI_DOCUMENT } from '@agentforge/api/openapi';
 
 export type ApiConfig = {
   databaseUrl: string;

@@ -117,6 +117,13 @@ test('payload limit rejects oversized API requests', async () => {
 });
 
 test('OpenAPI contract lists every required V1 route', () => {
-  const paths = OPENAPI_DOCUMENT.paths as Record<string, unknown>;
-  for (const route of API_ROUTE_KEYS) assert.ok(paths[route] !== undefined, `missing OpenAPI route ${route}`);
+  const paths = OPENAPI_DOCUMENT.paths as Record<string, Record<string, unknown>>;
+  for (const route of API_ROUTE_KEYS) {
+    const separator = route.indexOf(' ');
+    const method = route.slice(0, separator).toLowerCase();
+    const path = route.slice(separator + 1);
+    const operations = paths[path];
+    assert.ok(operations !== undefined, `missing OpenAPI path ${path}`);
+    assert.ok(operations[method] !== undefined, `missing OpenAPI operation ${route}`);
+  }
 });
