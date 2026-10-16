@@ -28,17 +28,39 @@ jobs:
           npm install --global typescript@5.8.3
       - name: Frozen install
         run: pnpm install --frozen-lockfile
-      - name: Repair API OpenAPI self-reference
+      - name: Repair API self-reference and strengthen OpenAPI route assertion
         run: |
           python - <<'PY'
           from pathlib import Path
-          path = Path('apps/api/src/index.ts')
-          text = path.read_text()
-          old = "import { OPENAPI_DOCUMENT } from './openapi.js';"
-          new = "import { OPENAPI_DOCUMENT } from '@agentforge/api/openapi';"
-          if old not in text:
+
+          api = Path('apps/api/src/index.ts')
+          text = api.read_text()
+          old_import = "import { OPENAPI_DOCUMENT } from './openapi.js';"
+          new_import = "import { OPENAPI_DOCUMENT } from '@agentforge/api/openapi';"
+          if old_import not in text:
               raise SystemExit('expected API import not found; refusing broad rewrite')
-          path.write_text(text.replace(old, new, 1))
+          api.write_text(text.replace(old_import, new_import, 1))
+
+          test = Path('tests/api.test.ts')
+          text = test.read_text()
+          old_test = """test('OpenAPI contract lists every required V1 route', () => {
+            const paths = OPENAPI_DOCUMENT.paths as Record<string, unknown>;
+            for (const route of API_ROUTE_KEYS) assert.ok(paths[route] !== undefined, `missing OpenAPI route ${route}`);
+          });"""
+          new_test = """test('OpenAPI contract lists every required V1 route', () => {
+            const paths = OPENAPI_DOCUMENT.paths as Record<string, Record<string, unknown>>;
+            for (const route of API_ROUTE_KEYS) {
+              const separator = route.indexOf(' ');
+              const method = route.slice(0, separator).toLowerCase();
+              const path = route.slice(separator + 1);
+              const operations = paths[path];
+              assert.ok(operations !== undefined, `missing OpenAPI path ${path}`);
+              assert.ok(operations[method] !== undefined, `missing OpenAPI operation ${route}`);
+            }
+          });"""
+          if old_test not in text:
+              raise SystemExit('expected OpenAPI test block not found; refusing broad rewrite')
+          test.write_text(text.replace(old_test, new_test, 1))
           PY
       - name: Verify static and deterministic gates
         run: |
@@ -49,10 +71,10 @@ jobs:
           pnpm test:unit
       - name: Commit exact repair
         run: |
-          git diff -- apps/api/src/index.ts
-          git diff --exit-code -- . ':(exclude)apps/api/src/index.ts'
+          git diff -- apps/api/src/index.ts tests/api.test.ts
+          git diff --exit-code -- . ':(exclude)apps/api/src/index.ts' ':(exclude)tests/api.test.ts'
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/api/src/index.ts
-          git commit -m "fix(api): resolve OpenAPI through package self-reference"
+          git add apps/api/src/index.ts tests/api.test.ts
+          git commit -m "fix(api): align OpenAPI source and contract verification"
           git push origin HEAD:r7/finalize-v1
