@@ -18,7 +18,7 @@
     "build": "node scripts/build.mjs",
     "test": "node --experimental-transform-types --conditions=development --test tests/*.test.ts tests/*.test.mjs integration/*.test.ts integration/*.test.mjs",
     "test:unit": "node --experimental-transform-types --conditions=development --test tests/*.test.ts tests/*.test.mjs",
-    "test:integration": "node --experimental-transform-types --conditions=development --test integration/*.test.ts integration/*.test.mjs",
+    "test:integration": "node --experimental-transform-types --conditions=development --test --test-concurrency=1 integration/*.test.ts integration/*.test.mjs",
     "test:all": "pnpm test:unit && pnpm test:integration",
     "db:migrate": "node --experimental-transform-types --conditions=development scripts/migrate.ts",
     "db:smoke": "node --experimental-transform-types --conditions=development scripts/db-smoke.ts",

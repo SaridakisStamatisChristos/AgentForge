@@ -5,13 +5,15 @@ import {
   createId,
   type JsonValue,
 } from '@agentforge/contracts';
+import { createApiIdempotencyStore, type ApiIdempotencyStore } from '@agentforge/api/idempotency';
+import { prometheus, type ApiMetrics } from '@agentforge/api/metrics';
+import { OPENAPI_DOCUMENT } from '@agentforge/api/openapi';
 import { PostgresCli, PostgresStore } from '@agentforge/persistence';
 import {
   DEFAULT_LIMITS,
   RuntimeService,
   type RuntimeStore,
 } from '@agentforge/runtime';
-import { OPENAPI_DOCUMENT } from '@agentforge/api/openapi';
 
 export type ApiConfig = {
   databaseUrl: string;
@@ -24,18 +26,9 @@ export type ApiConfig = {
 export type ApiDependencies = {
   store?: RuntimeStore;
   runtime?: RuntimeService;
+  idempotencyStore?: ApiIdempotencyStore;
   config?: Partial<ApiConfig>;
   log?: (record: Readonly<Record<string, unknown>>) => void;
-};
-
-type ApiMetrics = {
-  httpRequests: number;
-  httpErrors: number;
-  workflowsCreated: number;
-  runsStarted: number;
-  cancellationRequests: number;
-  signalsAccepted: number;
-  signalsDuplicate: number;
 };
 
 const DEFAULT_CONFIG: ApiConfig = {
@@ -70,11 +63,27 @@ function requestId(request: IncomingMessage): string {
   return createId('req');
 }
 
-function jsonResponse(response: ServerResponse, statusCode: number, body: unknown, id: string): void {
+function idempotencyKey(request: IncomingMessage): string | undefined {
+  const raw = request.headers['idempotency-key'];
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string' || raw.trim().length === 0 || raw.length > 256) {
+    throw new AgentForgeError({ code: 'INVALID_IDEMPOTENCY_KEY', category: 'VALIDATION', message: 'Idempotency-Key must be a single non-empty string up to 256 characters', httpStatus: 400 });
+  }
+  return raw;
+}
+
+function jsonResponse(
+  response: ServerResponse,
+  statusCode: number,
+  body: unknown,
+  id: string,
+  headers: Readonly<Record<string, string>> = {},
+): void {
   const serialized = JSON.stringify(body);
   response.statusCode = statusCode;
   response.setHeader('content-type', 'application/json; charset=utf-8');
   response.setHeader('x-request-id', id);
+  for (const [name, value] of Object.entries(headers)) response.setHeader(name, value);
   response.setHeader('content-length', Buffer.byteLength(serialized));
   response.end(serialized);
 }
@@ -121,30 +130,9 @@ function parseSignalPath(pathname: string): { runId: string; name: string } | nu
   return { runId: decodeURIComponent(match[1]), name: decodeURIComponent(match[2]) };
 }
 
-function prometheus(metrics: ApiMetrics): string {
-  return [
-    '# HELP agentforge_http_requests_total Total HTTP requests handled.',
-    '# TYPE agentforge_http_requests_total counter',
-    `agentforge_http_requests_total ${metrics.httpRequests}`,
-    '# HELP agentforge_http_errors_total Total HTTP error responses.',
-    '# TYPE agentforge_http_errors_total counter',
-    `agentforge_http_errors_total ${metrics.httpErrors}`,
-    '# HELP agentforge_workflows_created_total Total workflow versions created through the API.',
-    '# TYPE agentforge_workflows_created_total counter',
-    `agentforge_workflows_created_total ${metrics.workflowsCreated}`,
-    '# HELP agentforge_runs_started_total Total workflow runs started through the API.',
-    '# TYPE agentforge_runs_started_total counter',
-    `agentforge_runs_started_total ${metrics.runsStarted}`,
-    '# HELP agentforge_cancellation_requests_total Total cancellation requests.',
-    '# TYPE agentforge_cancellation_requests_total counter',
-    `agentforge_cancellation_requests_total ${metrics.cancellationRequests}`,
-    '# HELP agentforge_signals_accepted_total Total accepted durable signals.',
-    '# TYPE agentforge_signals_accepted_total counter',
-    `agentforge_signals_accepted_total ${metrics.signalsAccepted}`,
-    '# HELP agentforge_signals_duplicate_total Total deduplicated durable signals.',
-    '# TYPE agentforge_signals_duplicate_total counter',
-    `agentforge_signals_duplicate_total ${metrics.signalsDuplicate}`,
-  ].join('\n') + '\n';
+function parseWorkflowPath(pathname: string): string | null {
+  const match = pathname.match(/^\/v1\/workflows\/([^/]+)$/);
+  return match?.[1] === undefined ? null : decodeURIComponent(match[1]);
 }
 
 export function createApi(dependencies: ApiDependencies = {}): {
@@ -157,6 +145,7 @@ export function createApi(dependencies: ApiDependencies = {}): {
   const config: ApiConfig = { ...loadApiConfig(), ...(dependencies.config ?? {}) };
   const store = dependencies.store ?? new PostgresStore(new PostgresCli(config.databaseUrl));
   const runtime = dependencies.runtime ?? new RuntimeService(store, { ...DEFAULT_LIMITS, maxPayloadBytes: config.maxBodyBytes });
+  const idempotency = dependencies.idempotencyStore ?? createApiIdempotencyStore(store);
   const log = dependencies.log ?? ((record) => process.stdout.write(`${JSON.stringify(record)}\n`));
   const metrics: ApiMetrics = { httpRequests: 0, httpErrors: 0, workflowsCreated: 0, runsStarted: 0, cancellationRequests: 0, signalsAccepted: 0, signalsDuplicate: 0 };
 
@@ -182,7 +171,7 @@ export function createApi(dependencies: ApiDependencies = {}): {
         response.statusCode = 200;
         response.setHeader('content-type', 'text/plain; version=0.0.4; charset=utf-8');
         response.setHeader('x-request-id', id);
-        response.end(prometheus(metrics));
+        response.end(await prometheus(store, metrics));
         return;
       }
       if (method === 'GET' && pathname === '/openapi.json') {
@@ -210,11 +199,45 @@ export function createApi(dependencies: ApiDependencies = {}): {
         jsonResponse(response, 200, version, id);
         return;
       }
+      const workflowIdentifier = parseWorkflowPath(pathname);
+      if (method === 'GET' && workflowIdentifier !== null) {
+        const version = await store.getWorkflowVersion(workflowIdentifier) ?? await store.getWorkflowLatest(workflowIdentifier);
+        if (version === null) throw new AgentForgeError({ code: 'WORKFLOW_NOT_FOUND', category: 'VALIDATION', message: 'Workflow or workflow version not found', httpStatus: 404 });
+        jsonResponse(response, 200, version, id);
+        return;
+      }
       if (method === 'POST' && pathname === '/v1/runs') {
         const body = requireObject(await readJsonBody(request, config.maxBodyBytes), 'run request');
         const versionId = body.workflowVersionId;
         if (typeof versionId !== 'string' || versionId.length === 0) throw new AgentForgeError({ code: 'INVALID_WORKFLOW_VERSION_ID', category: 'VALIDATION', message: 'workflowVersionId is required', httpStatus: 400 });
-        const run = await runtime.startRun(versionId, body.input ?? null);
+        const input = body.input ?? null;
+        const key = idempotencyKey(request);
+        if (key === undefined) {
+          const run = await runtime.startRun(versionId, input);
+          metrics.runsStarted += 1;
+          jsonResponse(response, 201, run, id);
+          return;
+        }
+        const fingerprint = JSON.stringify([versionId, input]);
+        const reservation = await idempotency.reserve(key, fingerprint);
+        if (reservation.kind === 'conflict') throw new AgentForgeError({ code: 'IDEMPOTENCY_KEY_CONFLICT', category: 'VALIDATION', message: 'Idempotency-Key was already used for a different run request', httpStatus: 409 });
+        if (reservation.kind === 'in_progress') throw new AgentForgeError({ code: 'IDEMPOTENCY_IN_PROGRESS', category: 'DEPENDENCY', message: 'A prior request with this Idempotency-Key has an unresolved outcome', retryable: true, httpStatus: 409 });
+        if (reservation.kind === 'replay') {
+          jsonResponse(response, reservation.statusCode, reservation.body, id, { 'idempotency-replayed': 'true' });
+          return;
+        }
+        let run;
+        try {
+          run = await runtime.startRun(versionId, input);
+        } catch (error) {
+          try {
+            await idempotency.release(key, fingerprint);
+          } catch (releaseError) {
+            log({ level: 'error', event: 'api.idempotency_release_failed', requestId: id, message: releaseError instanceof Error ? releaseError.message : 'unknown release error' });
+          }
+          throw error;
+        }
+        await idempotency.complete(key, fingerprint, 201, run);
         metrics.runsStarted += 1;
         jsonResponse(response, 201, run, id);
         return;
