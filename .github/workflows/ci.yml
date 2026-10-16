@@ -29,10 +29,11 @@ jobs:
       DATABASE_URL: postgresql://agentforge:agentforge@127.0.0.1:5432/agentforge_test
       AGENTFORGE_ALLOW_TEST_DB_RESET: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22.16.0
+          package-manager-cache: false
       - name: Toolchain
         run: |
           corepack enable
@@ -75,7 +76,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate Compose
         run: docker compose config
       - name: PostgreSQL fresh-start smoke
