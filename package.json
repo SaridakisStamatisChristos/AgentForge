@@ -37,6 +37,7 @@
     "benchmark:smoke": "node --experimental-transform-types --conditions=development benchmarks/runtime/benchmark.ts --smoke",
     "consumer:check": "node scripts/consumer-check.mjs",
     "check:placeholders": "node scripts/check-placeholders.mjs",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm build && pnpm consumer:check && pnpm check:placeholders"
+    "check:repository": "node scripts/check-repository.mjs",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm build && pnpm consumer:check && pnpm check:placeholders && pnpm check:repository"
   }
 }
