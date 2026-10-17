@@ -1,50 +1,63 @@
 # AgentForge
 
-**AgentForge is a durable TypeScript execution runtime for long-running AI agents and workflows.**
+**AgentForge is a durable TypeScript execution runtime for long-running agents and workflows.**
 
-Define a workflow, start a run, survive failures, resume safely, inspect every transition, and keep external side effects behind explicit idempotency boundaries.
+It is built around a simple operational requirement: work should survive process failure without losing execution authority, history, or recovery semantics. AgentForge persists workflow state in PostgreSQL, schedules DAG work through transactional claims, fences stale workers with lease generations, records ordered execution history, and exposes the runtime through HTTP/SSE and a TypeScript SDK.
 
-AgentForge is a portfolio-grade backend engineering system focused on execution semantics: durable PostgreSQL state, workflow/DAG scheduling, bounded workers, lease generations and stale-worker fencing, retries, cancellation, checkpoints, signals, tools, deterministic model providers, ordered execution history, an HTTP/SSE control plane, and a TypeScript SDK.
+AgentForge is not a visual workflow builder, a chat UI, a prompt-wrapper library, a generic message broker, or an exactly-once marketing claim. Its focus is durable execution semantics.
 
-It is **not** an n8n clone, a visual workflow builder, a chat UI, a prompt-wrapper library, a generic message broker, an exactly-once marketing claim, or a runtime tied to one LLM vendor.
+## What it provides
+
+- durable workflow and run state in PostgreSQL;
+- validated DAG execution with dependency scheduling;
+- bounded workers with transactional claims and lease-generation fencing;
+- append-only execution-attempt history;
+- retries, timeouts, cancellation, checkpoints, waits and durable signals;
+- task, tool and model-provider registries;
+- deterministic provider support for offline tests and examples;
+- explicit idempotency boundaries for side-effecting tools;
+- ordered runtime events and SSE inspection;
+- HTTP control plane and TypeScript SDK;
+- deterministic unit tests plus real PostgreSQL integration tests;
+- executable recovery examples, benchmark smoke tests and container validation.
 
 ## Architecture
 
 ```mermaid
 flowchart TB
-  subgraph Consumers["Consumers"]
+  subgraph Clients["Consumers"]
     App["Application / operator"]
     SDK["TypeScript SDK"]
   end
 
-  subgraph Control["Control plane"]
-    API["apps/api · HTTP + SSE"]
+  subgraph ControlPlane["Control plane"]
+    API["apps/api\nHTTP + SSE"]
     Service["RuntimeService"]
   end
 
-  subgraph Execution["Execution plane"]
-    Worker["apps/worker · bounded worker"]
-    Queue["packages/queue · transactional claims"]
-    Runtime["packages/runtime · durable execution engine"]
+  subgraph ExecutionPlane["Execution plane"]
+    Worker["apps/worker\nbounded worker"]
+    Queue["packages/queue\ntransactional claims"]
+    Runtime["packages/runtime\ndurable execution engine"]
   end
 
-  subgraph Durable["Durable state boundary"]
-    Store["packages/persistence · RuntimeStore + transactions"]
-    PG[("PostgreSQL\nruns · pinned workflow versions · queue\nattempts · checkpoints · signals · ordered events")]
-  end
-
-  subgraph Semantics["Pure domain semantics"]
-    Workflows["packages/workflows · DAG validation"]
-    Core["packages/core · transitions + retry rules"]
-    Contracts["packages/contracts · states + errors + events"]
+  subgraph Semantics["Domain semantics"]
+    Workflows["packages/workflows\nDAG validation"]
+    Core["packages/core\ntransitions + retry rules"]
+    Contracts["packages/contracts\nstates + errors + events"]
   end
 
   subgraph Adapters["Execution adapters"]
     Tasks["Task registry"]
-    Tools["Tool registry · stable operation keys"]
+    Tools["Tool registry"]
     Providers["Provider registry"]
     External["External systems"]
     Models["Deterministic / HTTP model providers"]
+  end
+
+  subgraph Persistence["Durable authority boundary"]
+    Store["packages/persistence\nRuntimeStore + transactions"]
+    PG[("PostgreSQL\nruns · pinned workflow versions · queue\nattempts · checkpoints · signals · ordered events")]
   end
 
   App --> SDK --> API --> Service --> Store
@@ -59,29 +72,77 @@ flowchart TB
   Store <--> PG
   PG -->|"durable state + ordered history"| API
   API -->|"inspection + SSE"| SDK
-
-  classDef authority stroke-width:2px,stroke-dasharray:5 4;
-  class Queue,Store,PG authority;
 ```
 
-PostgreSQL is both the durable source of truth and the queue substrate; Redis is intentionally absent in V1. Claims use transactional row locking and lease generations. A worker may execute at least once over time, but only the current lease generation may commit an authoritative result.
+PostgreSQL is both the durable source of truth and the queue substrate. Redis is intentionally not required. Claims use transactional row locking and lease generations; work may execute more than once over time, but only the current authoritative lease generation may commit completion.
+
+See [architecture](docs/architecture.md), [execution model](docs/execution-model.md), [persistence](docs/persistence.md), and [state machines](docs/state-machines.md).
+
+## Execution and authority model
+
+AgentForge separates execution from authority:
+
+1. A workflow definition is validated and persisted as a pinned workflow version.
+2. Starting a run persists the run and its initially eligible work.
+3. A worker transactionally claims work and receives a lease owner, generation and expiry.
+4. The runtime executes the task, tool, model or agent step under bounded retry/timeout/cancellation rules.
+5. Completion is accepted only when the lease authority is still current.
+6. Durable state transitions schedule newly eligible downstream work and append ordered events.
+7. Clients inspect current state and history through the API, SDK or SSE stream.
+
+This model supports crash recovery while rejecting stale completions from superseded workers.
 
 ## Reliability semantics
 
 - **At-least-once execution reality.** Retries and crash recovery can repeat execution attempts.
-- **No arbitrary exactly-once external-effect claim.** A side-effecting tool receives a stable operation key and AgentForge durably records invocation state. An external system must honor an idempotency key if the effect itself must be deduplicated across the crash boundary.
-- **Stale-worker fencing.** Lease owner + lease generation + unexpired lease form the commit authority. A completion from an expired generation is rejected.
-- **Attempt history is append-only.** Retries create new durable attempts; earlier failures remain inspectable.
-- **Workflow version pinning.** A run keeps the exact workflow version it started with.
-- **Monotonic cancellation.** Cancellation revokes future ordinary work and prevents stale success from resurrecting a cancelled run.
-- **Durable wait/signal.** A run may enter `WAITING`, survive process replacement, accept a named deduplicated signal, and resume downstream scheduling.
+- **No arbitrary exactly-once external-effect claim.** Side-effecting tools receive stable operation keys, but the external system must honor an idempotency key when the effect itself must be deduplicated across a crash boundary.
+- **Stale-worker fencing.** Lease owner + lease generation + unexpired lease form commit authority.
+- **Append-only attempt history.** Retries create new durable attempts; previous failures remain inspectable.
+- **Workflow version pinning.** A run retains the exact workflow version it started with.
+- **Monotonic cancellation.** Cancellation prevents stale success from resurrecting cancelled work.
+- **Durable wait/signal.** Waiting runs survive process replacement and resume after deduplicated signals.
 - **Idempotent run submission.** `POST /v1/runs` accepts `Idempotency-Key`; same-key/same-request replay returns the original run, while conflicting reuse fails closed.
 
-See [execution model](docs/execution-model.md), [failure semantics](docs/failure-semantics.md), [state machines](docs/state-machines.md), and [idempotency](docs/idempotency.md).
+See [failure semantics](docs/failure-semantics.md), [idempotency](docs/idempotency.md), and [checkpoints](docs/checkpoints.md).
 
-## 5-minute local start
+## Major subsystems
 
-Prerequisites: Node.js 22, Corepack/pnpm 10.18.3, TypeScript 5.8.3 (`tsc` on `PATH`), Docker/Compose, and the PostgreSQL client (`psql`). No AI/provider API key is required.
+| Area | Responsibility |
+| --- | --- |
+| `packages/contracts` | Serializable states, identifiers, errors and events |
+| `packages/core` | Pure state-transition and retry-policy rules |
+| `packages/workflows` | Workflow validation, DAG semantics and dependency checks |
+| `packages/runtime` | Worker execution, retries, timeouts, cancellation, checkpoints and agent/tool/provider dispatch |
+| `packages/queue` | Transactional claim and lease SQL contracts |
+| `packages/persistence` | PostgreSQL adapter, migrations and transaction boundaries |
+| `packages/events` | Typed event source/sink interfaces and bounded event pumping |
+| `packages/tools` | Tool registration and side-effect/idempotency policy |
+| `packages/providers` | Deterministic and optional HTTP model-provider adapters |
+| `packages/sdk` | HTTP/SSE client and workflow ergonomics |
+| `apps/api` | HTTP/SSE control plane |
+| `apps/worker` | Worker-process wiring |
+
+The domain layer does not depend on HTTP or PostgreSQL. API routes delegate through runtime/store boundaries rather than mutating durable state directly.
+
+## Tools, providers and external integrations
+
+Registered tools are trusted host code selected by stable names. They execute with the operating-system privileges of the worker process; AgentForge does not sandbox tool code. Side-effecting tools use explicit operation-key semantics so callers can reason about crash boundaries.
+
+`ModelProvider.invoke` is the model-runtime boundary. Tests and examples can use the local deterministic provider without an API key. An optional OpenAI-compatible HTTP adapter is available without making a vendor SDK part of the core runtime.
+
+Event delivery is separated from durable execution history through `EventSource` / `EventSink` interfaces. See [event delivery](docs/event-delivery.md).
+
+## Local development
+
+Prerequisites:
+
+- Node.js 22;
+- Corepack and pnpm 10.18.3;
+- TypeScript 5.8.3 (`tsc` on `PATH`);
+- Docker/Compose;
+- PostgreSQL client (`psql`).
+
+No model-provider API key is required for the test suite or deterministic examples.
 
 ```bash
 corepack enable
@@ -93,68 +154,55 @@ pnpm db:migrate
 pnpm dev
 ```
 
-`pnpm dev` uses `http://127.0.0.1:8787` unless `AGENTFORGE_API_PORT` is set. Compose also publishes port `8787`. When running `pnpm dev:api` directly without environment configuration, use the API process's built-in fallback or export the values from `.env.example` explicitly.
+The local API uses `http://127.0.0.1:8787` unless `AGENTFORGE_API_PORT` is set.
 
-Health surfaces:
+Health and contract surfaces:
 
 ```text
-GET /health/live   process liveness only
+GET /health/live   process liveness
 GET /health/ready  PostgreSQL-backed readiness
 GET /metrics       Prometheus text metrics
-GET /openapi.json  source-controlled runtime contract
+GET /openapi.json  runtime API contract
 ```
 
-## SDK example
+See [development](docs/development.md), [configuration](docs/configuration.md), [operations](docs/operations.md), and [API reference](docs/api.md).
 
-The `hello-workflow` example starts an actual local HTTP server and uses the public SDK—not raw HTTP—to submit and inspect a three-step workflow:
+## SDK example
 
 ```ts
 import { AgentForgeClient, defineWorkflow } from '@agentforge/sdk';
 
 const client = new AgentForgeClient({ baseUrl: 'http://127.0.0.1:8787' });
-const workflow = await client.createWorkflow(defineWorkflow({
-  name: 'hello',
-  steps: [
-    { id: 'a', kind: 'task', handler: 'echo' },
-    { id: 'b', kind: 'task', handler: 'echo', dependsOn: ['a'] },
-    { id: 'c', kind: 'task', handler: 'echo', dependsOn: ['b'] },
-  ],
-}));
+
+const workflow = await client.createWorkflow(
+  defineWorkflow({
+    name: 'hello',
+    steps: [
+      { id: 'a', kind: 'task', handler: 'echo' },
+      { id: 'b', kind: 'task', handler: 'echo', dependsOn: ['a'] },
+      { id: 'c', kind: 'task', handler: 'echo', dependsOn: ['b'] },
+    ],
+  }),
+);
+
 const run = await client.startRun(workflow.id, { hello: 'world' });
 console.log(await client.getRun(run.id));
 ```
 
-Run it with `pnpm example:hello`.
+Run the complete example with:
 
-## Failure-recovery demonstrations
-
-`pnpm example:recovery` deterministically demonstrates lease-expiry recovery and stale-generation fencing. The PostgreSQL integration suite goes further: it launches a worker in a real child process, kills it with `SIGKILL` during an active attempt, starts a replacement worker after lease expiry, and verifies lost-attempt history plus successful recovery.
-
-`pnpm example:agent` demonstrates a deterministic tool-using agent whose first provider attempt fails transiently and is recovered by the runtime retry mechanism.
-
-## Monorepo map
-
-```text
-apps/api             HTTP/SSE control plane
-apps/worker          durable worker process
-packages/contracts   domain types, states, errors
-packages/core        transition + retry rules
-packages/workflows   workflow validation/DAG semantics
-packages/runtime     worker/execution/agent engine
-packages/queue       lease/claim SQL contracts
-packages/persistence PostgreSQL adapter, durable tool definitions + migrations
-packages/events      typed event utilities + EventSource/EventSink boundary
-packages/tools       typed tool registry/idempotency policy
-packages/providers   deterministic + optional HTTP provider adapter
-packages/sdk         validated workflow/client + embedded tool-registry helpers
-packages/testing     deterministic clock/random/store test oracle
-examples/            executable hello/agent/recovery demonstrations
-integration/         real PostgreSQL concurrency/restart/process-kill tests
-benchmarks/runtime   internal reproducible benchmark harness
-docs/                architecture, semantics, operations, security, ADRs
+```bash
+pnpm example:hello
 ```
 
+Additional executable demonstrations:
+
+- `pnpm example:agent` — deterministic tool-using agent with retry recovery;
+- `pnpm example:recovery` — lease expiry, replacement-worker recovery and stale-generation rejection.
+
 ## Verification
+
+The repository keeps correctness gates explicit and executable:
 
 ```bash
 pnpm format:check
@@ -171,24 +219,48 @@ pnpm example:recovery
 pnpm benchmark:smoke
 ```
 
-GitHub Actions repeats the critical gates with PostgreSQL 17 and also validates Compose/fresh PostgreSQL startup and the container build. A workflow file existing is not treated as CI evidence; the R7 evidence ledger records actual observed runs separately.
+GitHub Actions additionally runs migrations/database smoke against PostgreSQL 17, a high-severity dependency audit, Compose validation, fresh-database startup and a production-container build. Failing checks are repaired rather than weakened or made optional.
 
-## Limitations / non-goals
+See [testing](docs/testing.md) and [verification](docs/verification.md).
 
-V1 intentionally does not provide a visual workflow designer, n8n compatibility, Kubernetes operators, enterprise SSO, billing, a marketplace, browser automation, RAG/vector storage, multi-region consensus, a production secrets manager, a generic distributed broker, tool sandboxing, or hundreds of integrations. Registered local tools execute with the privileges of their worker process.
+## Security and governance boundaries
 
-The reference API trust boundary is local/private deployment. Input is validated and bounded, SQL is parameterized, obvious secrets are not embedded, and error responses omit stacks, but V1 does not include an internet-facing identity/authentication layer.
+The current reference API is intended for local/private deployment behind an appropriate trusted or authenticated boundary. It validates and bounds untrusted request/workflow input, parameterizes database operations, omits stack traces from normal API errors, and does not require committed provider secrets.
 
-The `EventSink` extension point does not by itself claim durable cross-service delivery. A future asynchronous external-delivery adapter must add a transactional outbox or equivalent durable consistency boundary before making crash-safe delivery claims.
+It does **not** provide public-internet identity/SSO, untrusted-code sandboxing, a production secrets manager, multi-region consensus or organization-specific compliance controls. Those boundaries are documented rather than implied.
 
-## Portfolio relationship
+See [security model](docs/security-model.md) and [roadmap / deferred scope](docs/roadmap.md).
 
-- **Workflows-N8N**: workflow authoring, automation and integration design.
-- **RelayForge**: reliable message/webhook/event delivery concerns.
-- **AgentForge**: durable execution semantics—state, workers, leases, recovery, retries, cancellation, checkpoints and agents/tools.
+## Repository map
 
-These are conceptual portfolio boundaries only. AgentForge has no runtime dependency on the other repositories.
+```text
+apps/api             HTTP/SSE control plane
+apps/worker          durable worker process
+packages/contracts   domain types, states and errors
+packages/core        transition and retry rules
+packages/workflows   workflow validation and DAG semantics
+packages/runtime     worker/execution/agent engine
+packages/queue       lease/claim SQL contracts
+packages/persistence PostgreSQL adapter and migrations
+packages/events      event source/sink interfaces
+packages/tools       tool registry and idempotency policy
+packages/providers   model-provider abstraction
+packages/sdk         TypeScript client
+packages/testing     deterministic test oracle
+examples/            executable demonstrations
+integration/         PostgreSQL concurrency/restart/process-kill tests
+benchmarks/runtime   reproducible internal benchmark harness
+docs/                architecture, semantics, operations and security
+```
+
+## Limitations
+
+AgentForge currently does not provide a visual workflow designer, n8n compatibility, Kubernetes operators, enterprise SSO, billing, a marketplace, browser automation, RAG/vector storage, multi-region consensus, a production secrets manager, generic distributed brokering or tool sandboxing.
+
+The `EventSink` boundary does not by itself guarantee crash-safe cross-service delivery. An asynchronous external-delivery implementation must add a transactional outbox or equivalent durable consistency mechanism before making that claim.
+
+Performance benchmark smoke tests are internal regression checks, not evidence of superiority over another runtime.
 
 ## License
 
-AgentForge is distributed under the proprietary license in `LICENSE`. Public source visibility permits only the rights stated in that license and does not make the project open source. See `LICENSE` and `docs/license-status.md` for the repository's current licensing status.
+AgentForge is distributed under the proprietary license in [`LICENSE`](LICENSE). Public source visibility grants only the rights stated in that license; it does not make the project open source. See [`LICENSE-NOTICE.md`](LICENSE-NOTICE.md) and [licensing](docs/licensing.md).
