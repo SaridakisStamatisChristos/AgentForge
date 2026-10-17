@@ -2,7 +2,12 @@
   "name": "agentforge",
   "version": "0.1.0",
   "private": true,
+  "description": "Durable TypeScript execution runtime for long-running agents and workflows.",
   "license": "SEE LICENSE IN LICENSE",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SaridakisStamatisChristos/AgentForge.git"
+  },
   "type": "module",
   "packageManager": "pnpm@10.18.3",
   "engines": {

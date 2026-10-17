@@ -1,31 +1,37 @@
 # Security and trust model
 
-V1 focuses on runtime integrity, bounded untrusted input and explicit trust boundaries. It does not claim enterprise identity, remote code sandboxing or internet-hardening.
+AgentForge focuses on runtime integrity, bounded untrusted input and explicit trust boundaries. It does not claim enterprise identity, remote-code sandboxing or public-internet hardening.
 
 ## Untrusted API input
 
-JSON request bodies and workflow definitions are parsed and validated before they reach durable semantics. Workflow JSON cannot contain executable JavaScript. Registered task/tool handlers are host code selected by stable names; `eval` and uploaded executable strings are forbidden. Payload, checkpoint, agent-iteration, retry, timeout and worker-concurrency values are bounded.
+JSON request bodies and workflow definitions are parsed and validated before they reach durable semantics. Workflow JSON cannot contain executable JavaScript. Registered task/tool handlers are host code selected by stable names; `eval` and uploaded executable strings are not part of the execution model.
 
-API errors return stable code/category/message/retryable/request-id fields and do not expose stack traces by default. Request IDs are bounded and sanitized before reflection.
+Payload, checkpoint, agent-iteration, retry, timeout and worker-concurrency values are bounded. API errors return stable code/category/message/retryable/request-id fields and do not expose stack traces by default. Request IDs are bounded and sanitized before reflection.
 
 ## Database boundary
 
-Database credentials come from `DATABASE_URL`. PostgreSQL values are supplied through the persistence adapter's parameter mechanism rather than concatenating untrusted workflow values into SQL. The queue uses database transactions and row locks for authority rather than client-provided state.
+Database credentials come from `DATABASE_URL`. PostgreSQL values are supplied through the persistence adapter's parameter mechanism rather than concatenating untrusted workflow values into SQL. Queue authority comes from database transactions and row locks rather than client-provided state.
 
 ## Tool boundary
 
-A registered tool runs with the operating-system privileges of its worker process. AgentForge V1 does **not** sandbox tool code. Operators must register only trusted host code and should isolate workers at the process/container/deployment layer when tool privilege requires it.
+A registered tool runs with the operating-system privileges of its worker process. AgentForge does **not** sandbox tool code. Operators must register only trusted host code and should isolate workers at the process/container/deployment layer when tool privilege requires it.
 
-Side-effecting tools require a durable operation-key contract but this is not a universal exactly-once guarantee; see `idempotency.md`.
+Side-effecting tools require a durable operation-key contract, but this is not a universal exactly-once guarantee. See `idempotency.md`.
 
 ## Provider boundary
 
-The deterministic provider is local and network-free. The optional OpenAI-compatible adapter is generic HTTP and does not require a vendor SDK. Provider tokens are optional environment values; they are not committed, required by tests, or printed by the default configuration path.
+The deterministic provider is local and network-free. The optional OpenAI-compatible adapter uses generic HTTP and does not require a vendor SDK. Provider tokens are optional environment values; they are not committed, required by tests or printed by the default configuration path.
 
 ## API deployment boundary
 
-The reference API contains no V1 public-internet authentication layer. It is intended for local/private/reference deployment behind an appropriate trusted/authenticated boundary. Do not expose it directly to an untrusted network and interpret the absence of auth as a security feature.
+The reference API does not include a public-internet authentication layer. It is intended for local/private deployment behind an appropriate trusted or authenticated boundary. Do not expose it directly to an untrusted network and do not interpret the absence of authentication as a security feature.
 
-## Supply chain
+## Event delivery boundary
 
-The runtime has no registry runtime dependency. CI pins the Node/pnpm/TypeScript toolchain and performs a dependency audit. No third-party source is copied into the repository. The repository intentionally has no owner-selected open-source license at this stage.
+Durable execution history remains in PostgreSQL. Optional `EventSink` implementations are integration adapters, not automatic crash-safe delivery guarantees. Asynchronous external delivery requires a transactional outbox or equivalent durable consistency mechanism before making a crash-safe publication claim.
+
+## Supply chain and licensing
+
+CI pins the Node/pnpm/TypeScript toolchain used by the repository and performs a high-severity dependency audit. Third-party dependencies and container images retain their own licenses.
+
+AgentForge itself is distributed under the proprietary root `LICENSE`. Public source visibility does not make the project open source. See `licensing.md`.
