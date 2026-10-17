@@ -49,6 +49,7 @@ jobs:
           pnpm lint
           pnpm typecheck
           pnpm check:placeholders
+          pnpm check:repository
       - name: Deterministic unit and adversarial tests
         run: pnpm test:unit
       - name: Migration and database smoke
